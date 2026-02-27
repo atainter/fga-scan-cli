@@ -9,6 +9,7 @@ import { quickCheckValidateAndFormat } from '../../src/lib/validation/quick-chec
 import { runAgent, type AgentRunConfig, type RetryConfig } from '../../src/lib/agent-interface.js';
 import type { InstallerOptions } from '../../src/utils/types.js';
 import type { ToolCall, LatencyMetrics } from './types.js';
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 export interface AgentResult {
   success: boolean;
@@ -147,7 +148,10 @@ export class AgentExecutor {
     };
 
     const prodRetryConfig: RetryConfig | undefined = config.enabled
-      ? { maxRetries: config.maxRetries, validateAndFormat: quickCheckValidateAndFormat }
+      ? {
+          maxRetries: config.maxRetries,
+          validateAndFormat: quickCheckValidateAndFormat,
+        }
       : undefined;
 
     try {
@@ -164,10 +168,20 @@ export class AgentExecutor {
 
       const latencyMetrics = this.latencyTracker.finish();
       const correctionAttempts = result.retryCount ?? 0;
-      const base = { output: collectedOutput.join('\n'), toolCalls, latencyMetrics, correctionAttempts };
+      const base = {
+        output: collectedOutput.join('\n'),
+        toolCalls,
+        latencyMetrics,
+        correctionAttempts,
+      };
 
       if (result.error) {
-        return { ...base, success: false, error: result.errorMessage ?? String(result.error), selfCorrected: false };
+        return {
+          ...base,
+          success: false,
+          error: result.errorMessage ?? String(result.error),
+          selfCorrected: false,
+        };
       }
 
       return { ...base, success: true, selfCorrected: correctionAttempts > 0 };
@@ -202,11 +216,7 @@ Use the \`${skillName}\` skill to integrate WorkOS AuthKit into this application
 Begin by invoking the ${skillName} skill.`;
   }
 
-  /**
-   * Observe SDK messages for latency tracking and output collection.
-   * This is called via the onMessage hook — production handleSDKMessage runs first.
-   */
-  private trackMessage(message: any, toolCalls: ToolCall[], collectedOutput: string[], label: string): void {
+  private trackMessage(message: SDKMessage, toolCalls: ToolCall[], collectedOutput: string[], label: string): void {
     if (message.type === 'assistant') {
       this.latencyTracker.endToolCall();
 
