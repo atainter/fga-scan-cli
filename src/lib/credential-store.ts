@@ -32,9 +32,11 @@ const ACCOUNT_NAME = 'credentials';
 
 let fallbackWarningShown = false;
 let forceInsecureStorage = false;
+let migrationAttempted = false;
 
 export function setInsecureStorage(value: boolean): void {
   forceInsecureStorage = value;
+  migrationAttempted = false;
 }
 
 function getCredentialsDir(): string {
@@ -145,7 +147,10 @@ export function getCredentials(): Credentials | null {
 
   const fileCreds = readFromFile();
   if (fileCreds) {
-    writeToKeyring(fileCreds);
+    if (!migrationAttempted) {
+      migrationAttempted = true;
+      writeToKeyring(fileCreds);
+    }
     return fileCreds;
   }
 
@@ -155,15 +160,16 @@ export function getCredentials(): Credentials | null {
 export function saveCredentials(creds: Credentials): void {
   if (forceInsecureStorage) return writeToFile(creds);
 
-  writeToFile(creds);
   if (!writeToKeyring(creds)) {
     showFallbackWarning();
+    writeToFile(creds);
   }
 }
 
 export function clearCredentials(): void {
   deleteFromKeyring();
   deleteFile();
+  migrationAttempted = false;
 }
 
 export function updateTokens(accessToken: string, expiresAt: number, refreshToken?: string): void {
