@@ -15,7 +15,7 @@ workos
 
 ## Features
 
-- **5 Framework Support:** Next.js, React Router, TanStack Start, React SPA, Vanilla JS
+- **15 Framework Support:** Next.js, React Router, TanStack Start, React SPA, Vanilla JS, SvelteKit, Node.js (Express), Python (Django), Ruby (Rails), Go, .NET (ASP.NET Core), Kotlin (Spring Boot), Elixir (Phoenix), PHP (Laravel), PHP
 - **AI-Powered:** Uses Claude to intelligently adapt to your project structure
 - **Security-First:** Masks API keys, redacts from logs, saves to .env.local
 - **Smart Detection:** Auto-detects framework, package manager, router type
@@ -50,11 +50,10 @@ workos [command]
 
 Commands:
   install                Install WorkOS AuthKit into your project
-  login                  Authenticate with WorkOS via browser OAuth
-  logout                 Remove stored credentials
+  auth                   Manage authentication (login, logout, status)
   env                    Manage environment configurations
   doctor                 Diagnose WorkOS integration issues
-  install-skill          Install AuthKit skills to coding agents
+  skills                 Manage WorkOS skills for coding agents (install, uninstall, list)
 
 Resource Management:
   organization (org)     Manage organizations
@@ -364,7 +363,7 @@ workos org-domain delete <id>
 workos install [options]
 
   --direct, -D            Use your own Anthropic API key (bypass llm-gateway)
-  --integration <name>    Framework: nextjs, react, react-router, tanstack-start, vanilla-js
+  --integration <name>    Framework: nextjs, react, react-router, tanstack-start, vanilla-js, sveltekit, node, python, ruby, go, dotnet, kotlin, elixir, php-laravel, php
   --api-key <key>         WorkOS API key (required in non-interactive mode)
   --client-id <id>        WorkOS client ID (required in non-interactive mode)
   --redirect-uri <uri>    Custom redirect URI
@@ -386,7 +385,7 @@ workos install [options]
 npx workos
 
 # Specify framework
-npx workos --integration react-router
+npx workos install --integration react-router
 
 # With visual dashboard (experimental)
 npx workos dashboard
