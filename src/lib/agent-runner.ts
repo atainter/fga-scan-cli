@@ -1,3 +1,4 @@
+import { getReference } from '@workos/skills';
 import { SPINNER_MESSAGE, type FrameworkConfig } from './framework-config.js';
 import { validateInstallation, quickCheckValidateAndFormat } from './validation/index.js';
 import type { InstallerOptions } from '../utils/types.js';
@@ -93,7 +94,7 @@ export async function runAgentInstaller(config: FrameworkConfig, options: Instal
   });
 
   // Build integration prompt (credentials are already in .env.local)
-  const integrationPrompt = buildIntegrationPrompt(
+  const integrationPrompt = await buildIntegrationPrompt(
     config,
     {
       frameworkVersion: frameworkVersion || 'latest',
@@ -205,17 +206,17 @@ export async function runAgentInstaller(config: FrameworkConfig, options: Instal
 
 /**
  * Build the integration prompt for the agent.
- * Uses skill-based approach where agent invokes framework-specific skill.
+ * Reads reference content from @workos/skills and injects it directly into the prompt.
  * Note: Credentials are pre-written to .env.local, so not included in prompt.
  */
-function buildIntegrationPrompt(
+async function buildIntegrationPrompt(
   config: FrameworkConfig,
   context: {
     frameworkVersion: string;
     typescript: boolean;
   },
   frameworkContext: Record<string, any>,
-): string {
+): Promise<string> {
   const additionalLines = config.prompts.getAdditionalContextLines
     ? config.prompts.getAdditionalContextLines(frameworkContext)
     : [];
@@ -228,9 +229,19 @@ function buildIntegrationPrompt(
     throw new Error(`Framework ${config.metadata.name} missing skillName in config`);
   }
 
-  // Next.js uses NEXT_PUBLIC_ prefix for redirect URI
-  const redirectUriEnvVar =
-    config.metadata.integration === 'nextjs' ? 'NEXT_PUBLIC_WORKOS_REDIRECT_URI' : 'WORKOS_REDIRECT_URI';
+  // Read reference content from @workos/skills package
+  // Load both the base template (task structure, decision trees, error recovery)
+  // and the framework-specific reference (step-by-step instructions)
+  const [baseContent, refContent] = await Promise.all([getReference('workos-authkit-base'), getReference(skillName)]);
+
+  // Build env var list dynamically based on what was actually configured
+  const envVars = [
+    ...(config.environment.requiresApiKey ? ['WORKOS_API_KEY'] : []),
+    'WORKOS_CLIENT_ID',
+    config.metadata.integration === 'nextjs' ? 'NEXT_PUBLIC_WORKOS_REDIRECT_URI' : 'WORKOS_REDIRECT_URI',
+    'WORKOS_COOKIE_PASSWORD',
+  ];
+  const envVarList = envVars.map((v) => `- ${v}`).join('\n');
 
   return `You are integrating WorkOS AuthKit into this ${config.metadata.name} application.
 
@@ -242,25 +253,19 @@ function buildIntegrationPrompt(
 ## Environment
 
 The following environment variables have been configured in .env.local:
-- WORKOS_API_KEY
-- WORKOS_CLIENT_ID
-- ${redirectUriEnvVar}
-- WORKOS_COOKIE_PASSWORD
+${envVarList}
 
-## Your Task
+## General Guidelines
 
-Use the \`${skillName}\` skill to integrate WorkOS AuthKit into this application.
+${baseContent}
 
-The skill contains step-by-step instructions including:
-1. Fetching the SDK documentation
-2. Installing the SDK
-3. Creating the callback route
-4. Setting up middleware/auth handling
-5. Adding authentication UI to the home page
+## Integration Instructions
+
+${refContent}
 
 Report your progress using [STATUS] prefixes.
 
-Begin by invoking the ${skillName} skill.`;
+Begin integration now.`;
 }
 
 function buildCompletionSummary(config: FrameworkConfig, changes: string[], nextSteps: string[]): string {

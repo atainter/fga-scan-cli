@@ -8,6 +8,7 @@ import { INSTALLER_INTERACTION_EVENT_NAME } from '../../lib/constants.js';
 import { initializeAgent, runAgent } from '../../lib/agent-interface.js';
 import { getOrAskForWorkOSCredentials } from '../../utils/clack-utils.js';
 import { autoConfigureWorkOSEnvironment } from '../../lib/workos-management.js';
+import { getReference } from '@workos/skills';
 
 export const config: FrameworkConfig = {
   metadata: {
@@ -77,7 +78,10 @@ export async function run(options: InstallerOptions): Promise<string> {
   });
 
   // Get WorkOS credentials
-  const { apiKey, clientId } = await getOrAskForWorkOSCredentials(options, config.environment.requiresApiKey);
+  const { apiKey, clientId: _clientId } = await getOrAskForWorkOSCredentials(
+    options,
+    config.environment.requiresApiKey,
+  );
 
   // Auto-configure WorkOS environment (redirect URI, CORS, homepage) if not already done
   const callerHandledConfig = Boolean(options.apiKey || options.clientId);
@@ -91,6 +95,7 @@ export async function run(options: InstallerOptions): Promise<string> {
 
   // Build prompt for the agent
   const redirectUri = options.redirectUri || 'http://localhost:3000/auth/callback';
+  const refContent = await getReference('workos-ruby');
   const prompt = `You are integrating WorkOS AuthKit into this Ruby on Rails application.
 
 ## Project Context
@@ -100,25 +105,18 @@ export async function run(options: InstallerOptions): Promise<string> {
 
 ## Environment
 
-The following environment variables should be configured in a .env file:
-- WORKOS_API_KEY=${apiKey ? '(provided)' : '(not set)'}
-- WORKOS_CLIENT_ID=${clientId || '(not set)'}
+The following environment variables are needed (create a .env file if one does not exist):
+- WORKOS_API_KEY
+- WORKOS_CLIENT_ID
 - WORKOS_REDIRECT_URI=${redirectUri}
 
-## Your Task
+## Integration Instructions
 
-Use the \`workos-ruby\` skill to integrate WorkOS AuthKit into this application.
-
-The skill contains step-by-step instructions including:
-1. Fetching the SDK documentation
-2. Installing the WorkOS Ruby gem
-3. Creating the WorkOS initializer
-4. Creating the AuthController with login, callback, and logout
-5. Adding authentication routes
+${refContent}
 
 Report your progress using [STATUS] prefixes.
 
-Begin by invoking the workos-ruby skill.`;
+Begin integration now.`;
 
   // Initialize and run agent
   const agent = await initializeAgent(

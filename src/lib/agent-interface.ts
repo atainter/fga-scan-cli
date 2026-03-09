@@ -3,7 +3,8 @@
  * Uses Claude Agent SDK directly with WorkOS MCP server
  */
 
-import { getPackageRoot } from '../utils/paths.js';
+import { dirname } from 'path';
+import { getSkillsDir as getSkillsPackageDir } from '@workos/skills';
 import { debug, logInfo, logWarn, logError, initLogFile, getLogFilePath } from '../utils/debug.js';
 import type { InstallerOptions } from '../utils/types.js';
 import { analytics } from '../utils/analytics.js';
@@ -451,7 +452,7 @@ export async function initializeAgent(config: AgentConfig, options: InstallerOpt
         },
       },
       model: getConfig().model,
-      allowedTools: ['Skill', 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch'],
+      allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch'],
       sdkEnv,
     };
 
@@ -575,8 +576,9 @@ export async function runAgent(
       await currentTurnDone;
     };
 
-    // Load plugin with bundled skills
-    const pluginPath = getPackageRoot(import.meta.url);
+    // Load plugin from @workos/skills package
+
+    const pluginPath = dirname(getSkillsPackageDir());
     logInfo('Loading plugin from:', pluginPath);
 
     const response = query({
