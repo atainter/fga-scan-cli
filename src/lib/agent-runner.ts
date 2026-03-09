@@ -230,9 +230,13 @@ async function buildIntegrationPrompt(
   }
 
   // Read reference content from @workos/skills package
-  // Load both the base template (task structure, decision trees, error recovery)
-  // and the framework-specific reference (step-by-step instructions)
-  const [baseContent, refContent] = await Promise.all([getReference('workos-authkit-base'), getReference(skillName)]);
+  // Base template has JS-centric assumptions (node_modules, lockfiles, AuthKitProvider)
+  // so only load it for JavaScript integrations; backend SDKs bypass this entirely
+  const isJavaScript = config.metadata.language === 'javascript';
+  const [baseContent, refContent] = await Promise.all([
+    isJavaScript ? getReference('workos-authkit-base') : Promise.resolve(''),
+    getReference(skillName),
+  ]);
 
   // Build env var list dynamically based on what was actually configured
   const envVars = [
@@ -255,11 +259,7 @@ async function buildIntegrationPrompt(
 The following environment variables have been configured in .env.local:
 ${envVarList}
 
-## General Guidelines
-
-${baseContent}
-
-## Integration Instructions
+${baseContent ? `## General Guidelines\n\n${baseContent}\n\n` : ''}## Integration Instructions
 
 ${refContent}
 
