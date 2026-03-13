@@ -74,8 +74,16 @@ vi.mock('node:os', async (importOriginal) => {
 });
 
 // Now import config-store module (after mock is set up)
-const { getConfig, saveConfig, clearConfig, getActiveEnvironment, setInsecureConfigStorage, getConfigPath } =
-  await import('./config-store.js');
+const {
+  getConfig,
+  saveConfig,
+  clearConfig,
+  getActiveEnvironment,
+  setInsecureConfigStorage,
+  getConfigPath,
+  isUnclaimedEnvironment,
+  markEnvironmentClaimed,
+} = await import('./config-store.js');
 import type { CliConfig, EnvironmentConfig } from './config-store.js';
 
 describe('config-store', () => {
@@ -341,6 +349,180 @@ describe('config-store', () => {
 
       expect(config?.activeEnvironment).toBe('production');
       expect(existsSync(configFile)).toBe(true);
+    });
+  });
+
+  describe('unclaimed environment type', () => {
+    const unclaimedEnv: EnvironmentConfig = {
+      name: 'unclaimed',
+      type: 'unclaimed',
+      apiKey: 'sk_test_oneshot',
+      clientId: 'client_01ONESHOT',
+      claimToken: 'ct_claim_token_abc',
+    };
+
+    const unclaimedConfig: CliConfig = {
+      activeEnvironment: 'unclaimed',
+      environments: {
+        unclaimed: unclaimedEnv,
+      },
+    };
+
+    it('round-trips unclaimed config through file storage', () => {
+      saveConfig(unclaimedConfig);
+      const config = getConfig();
+      expect(config).not.toBeNull();
+      const env = config?.environments['unclaimed'];
+      expect(env?.type).toBe('unclaimed');
+      expect(env?.claimToken).toBe('ct_claim_token_abc');
+      expect(env?.clientId).toBe('client_01ONESHOT');
+      expect(env?.apiKey).toBe('sk_test_oneshot');
+    });
+
+    it('round-trips unclaimed config through keyring storage', () => {
+      setInsecureConfigStorage(false);
+      saveConfig(unclaimedConfig);
+      const config = getConfig();
+      expect(config).not.toBeNull();
+      const env = config?.environments['unclaimed'];
+      expect(env?.type).toBe('unclaimed');
+      expect(env?.claimToken).toBe('ct_claim_token_abc');
+    });
+
+    it('returns unclaimed environment from getActiveEnvironment', () => {
+      saveConfig(unclaimedConfig);
+      const env = getActiveEnvironment();
+      expect(env).not.toBeNull();
+      expect(env?.type).toBe('unclaimed');
+      expect(env?.claimToken).toBe('ct_claim_token_abc');
+    });
+
+    it('preserves claimToken alongside other optional fields', () => {
+      const envWithEndpoint: EnvironmentConfig = {
+        ...unclaimedEnv,
+        endpoint: 'http://localhost:8001',
+      };
+      saveConfig({
+        activeEnvironment: 'unclaimed',
+        environments: { unclaimed: envWithEndpoint },
+      });
+      const env = getActiveEnvironment();
+      expect(env?.claimToken).toBe('ct_claim_token_abc');
+      expect(env?.endpoint).toBe('http://localhost:8001');
+    });
+
+    it('existing configs without claimToken remain valid', () => {
+      saveConfig(sampleConfig);
+      const env = getActiveEnvironment();
+      expect(env).not.toBeNull();
+      expect(env?.claimToken).toBeUndefined();
+    });
+  });
+
+  describe('isUnclaimedEnvironment', () => {
+    it('returns true for unclaimed type', () => {
+      expect(isUnclaimedEnvironment({ name: 'test', type: 'unclaimed', apiKey: 'sk_test' })).toBe(true);
+    });
+
+    it('returns false for production type', () => {
+      expect(isUnclaimedEnvironment({ name: 'test', type: 'production', apiKey: 'sk_test' })).toBe(false);
+    });
+
+    it('returns false for sandbox type', () => {
+      expect(isUnclaimedEnvironment({ name: 'test', type: 'sandbox', apiKey: 'sk_test' })).toBe(false);
+    });
+  });
+
+  describe('markEnvironmentClaimed', () => {
+    it('renames environment from unclaimed to sandbox', () => {
+      saveConfig({
+        activeEnvironment: 'unclaimed',
+        environments: {
+          unclaimed: {
+            name: 'unclaimed',
+            type: 'unclaimed',
+            apiKey: 'sk_test_xxx',
+            clientId: 'client_01ABC',
+            claimToken: 'ct_token',
+          },
+        },
+      });
+
+      markEnvironmentClaimed();
+
+      const config = getConfig();
+      expect(config?.environments['unclaimed']).toBeUndefined();
+      expect(config?.environments['sandbox']).toBeDefined();
+      expect(config?.environments['sandbox'].type).toBe('sandbox');
+      expect(config?.environments['sandbox'].name).toBe('sandbox');
+      expect(config?.environments['sandbox'].claimToken).toBeUndefined();
+      expect(config?.activeEnvironment).toBe('sandbox');
+    });
+
+    it('does nothing when no config', () => {
+      // No config saved — should not throw
+      expect(() => markEnvironmentClaimed()).not.toThrow();
+    });
+
+    it('does nothing when no active environment', () => {
+      saveConfig({
+        environments: { unclaimed: { name: 'unclaimed', type: 'unclaimed', apiKey: 'sk_test' } },
+      });
+
+      markEnvironmentClaimed();
+
+      const config = getConfig();
+      // Type should remain unchanged since there's no activeEnvironment
+      expect(config?.environments['unclaimed'].type).toBe('unclaimed');
+    });
+
+    it('does nothing when active environment is not unclaimed', () => {
+      saveConfig({
+        activeEnvironment: 'production',
+        environments: {
+          production: {
+            name: 'production',
+            type: 'production',
+            apiKey: 'sk_live_xxx',
+          },
+        },
+      });
+
+      markEnvironmentClaimed();
+
+      const config = getConfig();
+      expect(config?.environments['production'].type).toBe('production');
+      expect(config?.environments['production'].apiKey).toBe('sk_live_xxx');
+    });
+
+    it('does not overwrite existing sandbox environment on claim', () => {
+      saveConfig({
+        activeEnvironment: 'unclaimed',
+        environments: {
+          sandbox: {
+            name: 'sandbox',
+            type: 'sandbox',
+            apiKey: 'sk_test_existing_sandbox',
+          },
+          unclaimed: {
+            name: 'unclaimed',
+            type: 'unclaimed',
+            apiKey: 'sk_test_oneshot',
+            clientId: 'client_01ABC',
+            claimToken: 'ct_token',
+          },
+        },
+      });
+
+      markEnvironmentClaimed();
+
+      const config = getConfig();
+      // Existing sandbox should be preserved
+      expect(config?.environments['sandbox'].apiKey).toBe('sk_test_existing_sandbox');
+      // Unclaimed env should keep its key but change type
+      expect(config?.environments['unclaimed'].type).toBe('sandbox');
+      expect(config?.environments['unclaimed'].claimToken).toBeUndefined();
+      expect(config?.activeEnvironment).toBe('unclaimed');
     });
   });
 });

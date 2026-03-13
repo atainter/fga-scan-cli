@@ -15,12 +15,30 @@ import path from 'node:path';
 import os from 'node:os';
 import { logWarn } from '../utils/debug.js';
 
-export interface EnvironmentConfig {
+interface BaseEnvironmentConfig {
   name: string;
-  type: 'production' | 'sandbox';
   apiKey: string;
-  clientId?: string;
   endpoint?: string;
+}
+
+export interface ClaimedEnvironmentConfig extends BaseEnvironmentConfig {
+  type: 'production' | 'sandbox';
+  clientId?: string;
+}
+
+export interface UnclaimedEnvironmentConfig extends BaseEnvironmentConfig {
+  type: 'unclaimed';
+  clientId: string;
+  claimToken: string;
+}
+
+export type EnvironmentConfig = ClaimedEnvironmentConfig | UnclaimedEnvironmentConfig;
+
+/**
+ * Type guard — narrows to UnclaimedEnvironmentConfig with required clientId and claimToken.
+ */
+export function isUnclaimedEnvironment(env: EnvironmentConfig): env is UnclaimedEnvironmentConfig {
+  return env.type === 'unclaimed';
 }
 
 export interface CliConfig {
@@ -152,6 +170,14 @@ export function saveConfig(config: CliConfig): void {
   if (!writeToKeyring(config)) {
     showFallbackWarning();
     writeToFile(config);
+    return;
+  }
+
+  // Verify the keyring write is readable (guards against silent keyring failures
+  // where setPassword succeeds but getPassword returns null in the same process)
+  if (!readFromKeyring()) {
+    logWarn('Keyring write succeeded but read-back failed — falling back to file');
+    writeToFile(config);
   }
 }
 
@@ -169,4 +195,78 @@ export function getActiveEnvironment(): EnvironmentConfig | null {
 
 export function getConfigPath(): string {
   return getConfigFilePath();
+}
+
+/**
+ * Diagnostic info about config storage state — for debugging config persistence failures.
+ */
+export function diagnoseConfig(): string[] {
+  const lines: string[] = [];
+  const filePath = getConfigFilePath();
+  const filePresent = fileExists();
+
+  lines.push(`file: ${filePath} (exists=${filePresent})`);
+
+  if (filePresent) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(content) as Partial<CliConfig>;
+      const envCount = parsed.environments ? Object.keys(parsed.environments).length : 0;
+      lines.push(`file config: active=${parsed.activeEnvironment ?? 'none'}, environments=${envCount}`);
+    } catch (e) {
+      lines.push(`file config: parse error — ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  try {
+    const entry = getKeyringEntry();
+    const data = entry.getPassword();
+    if (data) {
+      const parsed = JSON.parse(data) as Partial<CliConfig>;
+      const envCount = parsed.environments ? Object.keys(parsed.environments).length : 0;
+      lines.push(`keyring: found, active=${parsed.activeEnvironment ?? 'none'}, environments=${envCount}`);
+    } else {
+      lines.push('keyring: empty (getPassword returned null)');
+    }
+  } catch (e) {
+    lines.push(`keyring: error — ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  lines.push(`insecureStorage=${forceInsecureStorage}`);
+  return lines;
+}
+
+/**
+ * Mark the active unclaimed environment as claimed.
+ * Updates type to 'sandbox', removes the claim token, and renames
+ * the environment key from 'unclaimed' to 'sandbox'.
+ */
+export function markEnvironmentClaimed(): void {
+  const config = getConfig();
+  if (!config?.activeEnvironment) return;
+  const oldKey = config.activeEnvironment;
+  const env = config.environments[oldKey];
+  if (env && env.type === 'unclaimed') {
+    // Pick a key that won't overwrite an existing environment
+    let newKey = 'sandbox';
+    if (oldKey !== newKey && config.environments[newKey]) {
+      newKey = oldKey; // keep existing key if 'sandbox' is already taken
+    }
+
+    const claimed: ClaimedEnvironmentConfig = {
+      name: newKey,
+      type: 'sandbox',
+      apiKey: env.apiKey,
+      clientId: env.clientId,
+      ...(env.endpoint && { endpoint: env.endpoint }),
+    };
+
+    if (oldKey !== newKey) {
+      delete config.environments[oldKey];
+    }
+    config.environments[newKey] = claimed;
+    config.activeEnvironment = newKey;
+
+    saveConfig(config);
+  }
 }

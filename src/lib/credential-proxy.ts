@@ -1,5 +1,5 @@
 /**
- * Lightweight HTTP proxy that injects credentials from file into requests.
+ * Lightweight HTTP proxy that injects credentials into upstream requests.
  * Includes lazy token refresh - refreshes proactively when token is expiring soon.
  */
 
@@ -40,6 +40,41 @@ export interface CredentialProxyHandle {
   url: string;
   /** Stop the proxy server */
   stop: () => Promise<void>;
+}
+
+// Hop-by-hop headers that must not be forwarded by proxies (RFC 7230 §6.1)
+const HOP_BY_HOP_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
+
+/** Copy headers, excluding hop-by-hop headers */
+function filterHeaders(headers: Record<string, string | string[] | undefined>): http.OutgoingHttpHeaders {
+  const out: http.OutgoingHttpHeaders = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase()) && value !== undefined) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/** Build the upstream path, stripping the `beta` query param (unsupported by WorkOS LLM gateway) */
+function buildUpstreamPath(reqUrl: string | undefined, upstream: URL): string {
+  const requestPath = reqUrl || '/';
+  const basePath = upstream.pathname.replace(/\/$/, '');
+  const fullPath = basePath + requestPath;
+  const upstreamUrl = new URL(fullPath, upstream.origin);
+  const searchParams = new URLSearchParams(upstreamUrl.search);
+  searchParams.delete('beta');
+  const queryString = searchParams.toString();
+  return upstreamUrl.pathname + (queryString ? `?${queryString}` : '');
 }
 
 // Module-level state for lazy refresh
@@ -257,42 +292,11 @@ async function handleRequest(
     return;
   }
 
-  // Build upstream request options
-  // Concatenate paths properly - URL() would replace the base path with absolute paths
-  const requestPath = req.url || '/';
-  const basePath = upstream.pathname.replace(/\/$/, ''); // Remove trailing slash
-  const fullPath = basePath + requestPath;
-  const upstreamUrl = new URL(fullPath, upstream.origin);
-
-  const headers: http.OutgoingHttpHeaders = {};
-
-  // Copy headers, excluding hop-by-hop headers
-  const hopByHop = new Set([
-    'connection',
-    'keep-alive',
-    'proxy-authenticate',
-    'proxy-authorization',
-    'te',
-    'trailer',
-    'transfer-encoding',
-    'upgrade',
-  ]);
-
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (!hopByHop.has(key.toLowerCase()) && value !== undefined) {
-      headers[key] = value;
-    }
-  }
-
-  // Inject credentials
+  // Build upstream request
+  const headers = filterHeaders(req.headers);
   headers['authorization'] = `Bearer ${creds.accessToken}`;
   headers['host'] = upstream.host;
-
-  // Strip beta=true query param - WorkOS LLM gateway doesn't support it
-  const searchParams = new URLSearchParams(upstreamUrl.search);
-  searchParams.delete('beta');
-  const queryString = searchParams.toString();
-  const finalPath = upstreamUrl.pathname + (queryString ? `?${queryString}` : '');
+  const finalPath = buildUpstreamPath(req.url, upstream);
 
   const requestOptions: http.RequestOptions = {
     hostname: upstream.hostname,
@@ -306,15 +310,7 @@ async function handleRequest(
   const transport = useHttps ? https : http;
 
   const proxyReq = transport.request(requestOptions, (proxyRes) => {
-    // Copy response headers
-    const responseHeaders: http.OutgoingHttpHeaders = {};
-    for (const [key, value] of Object.entries(proxyRes.headers)) {
-      if (!hopByHop.has(key.toLowerCase()) && value !== undefined) {
-        responseHeaders[key] = value;
-      }
-    }
-
-    res.writeHead(proxyRes.statusCode || 500, responseHeaders);
+    res.writeHead(proxyRes.statusCode || 500, filterHeaders(proxyRes.headers));
     proxyRes.pipe(res);
   });
 
@@ -365,6 +361,80 @@ async function handleRequest(
 
   // Stream request body
   req.pipe(proxyReq);
+}
+
+/**
+ * Start a lightweight proxy that injects claim token headers for unclaimed environments.
+ * No refresh logic — claim tokens are assumed valid for the duration of an install session.
+ */
+export async function startClaimTokenProxy(options: {
+  upstreamUrl: string;
+  claimToken: string;
+  clientId: string;
+}): Promise<CredentialProxyHandle> {
+  const upstream = new URL(options.upstreamUrl);
+  const useHttps = upstream.protocol === 'https:';
+
+  const server = http.createServer(async (req, res) => {
+    const headers = filterHeaders(req.headers);
+    headers['x-workos-claim-token'] = options.claimToken;
+    headers['x-workos-client-id'] = options.clientId;
+    headers['host'] = upstream.host;
+    const finalPath = buildUpstreamPath(req.url, upstream);
+
+    const transport = useHttps ? https : http;
+
+    const proxyReq = transport.request(
+      {
+        hostname: upstream.hostname,
+        port: upstream.port || (useHttps ? 443 : 80),
+        path: finalPath,
+        method: req.method,
+        headers,
+        timeout: 120_000,
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 500, filterHeaders(proxyRes.headers));
+        proxyRes.pipe(res);
+      },
+    );
+
+    proxyReq.on('error', (err) => {
+      logError('[claim-token-proxy] Upstream error:', err.message);
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'proxy_error', message: err.message }));
+      }
+    });
+
+    proxyReq.on('timeout', () => {
+      proxyReq.destroy();
+      if (!res.headersSent) {
+        res.writeHead(504, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'upstream_timeout', message: 'Upstream server timed out' }));
+      }
+    });
+
+    req.pipe(proxyReq);
+  });
+
+  const port = await new Promise<number>((resolve, reject) => {
+    server.once('error', (err) => reject(err));
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr && typeof addr === 'object') resolve(addr.port);
+      else reject(new Error('Failed to get server address'));
+    });
+  });
+
+  const url = `http://127.0.0.1:${port}`;
+  logInfo(`[claim-token-proxy] Started on ${url}, forwarding to ${options.upstreamUrl}`);
+
+  return {
+    port,
+    url,
+    stop: async () => stopServer(server),
+  };
 }
 
 function stopServer(server: http.Server): Promise<void> {
