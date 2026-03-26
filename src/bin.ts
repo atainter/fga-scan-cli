@@ -175,6 +175,7 @@ const installerOptions = {
 if (!isJsonMode()) await checkForUpdates();
 
 yargs(rawArgs)
+  .parserConfiguration({ 'populate--': true })
   .env('WORKOS_INSTALLER')
   .option('json', {
     type: 'boolean',
@@ -187,7 +188,12 @@ yargs(rawArgs)
     // Excluded: auth/claim/install/dashboard handle their own credential flows;
     // skills/doctor/env/debug are utility commands where the warning is unnecessary.
     const command = String(argv._?.[0] ?? '');
-    if (['auth', 'skills', 'doctor', 'env', 'claim', 'install', 'debug', 'dashboard', ''].includes(command)) return;
+    if (
+      ['auth', 'skills', 'doctor', 'env', 'claim', 'install', 'debug', 'dashboard', 'emulate', 'dev', ''].includes(
+        command,
+      )
+    )
+      return;
     await applyInsecureStorage(argv.insecureStorage as boolean | undefined);
     await maybeWarnUnclaimed();
   })
@@ -2120,6 +2126,36 @@ yargs(rawArgs)
       await resolveInstallCredentials(argv.apiKey, argv.installDir, argv.skipAuth, ensureAuthenticated);
       const { handleInstall } = await import('./commands/install.js');
       await handleInstall(argv);
+    },
+  )
+  .command(
+    'emulate',
+    'Start a local WorkOS API emulator',
+    (yargs) =>
+      yargs.options({
+        port: { type: 'number', default: 4100, describe: 'Port to listen on' },
+        seed: { type: 'string', describe: 'Path to seed config file (YAML or JSON)' },
+      }),
+    async (argv) => {
+      const { runEmulate } = await import('./commands/emulate.js');
+      await runEmulate({ port: argv.port, seed: argv.seed, json: argv.json as boolean });
+    },
+  )
+  .command(
+    'dev',
+    'Start emulator + your app in one command',
+    (yargs) =>
+      yargs.options({
+        port: { type: 'number', default: 4100, describe: 'Emulator port' },
+        seed: { type: 'string', describe: 'Path to seed config file' },
+      }),
+    async (argv) => {
+      const { runDev } = await import('./commands/dev.js');
+      await runDev({
+        port: argv.port,
+        seed: argv.seed,
+        '--': argv['--'] as string[] | undefined,
+      });
     },
   )
   .command('debug', false, (yargs) => {
