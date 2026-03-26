@@ -30,7 +30,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          registry-url: 'https://registry.npmjs.org'
           cache: pnpm
+
+      - name: Remove token auth from npmrc (use OIDC instead)
+        run: sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
 
       - name: Install
         run: pnpm install
@@ -50,4 +54,6 @@ jobs:
           fi
 
       - name: Publish
-        run: npm publish --tag ${{ steps.npm-tag.outputs.tag }} --access public --provenance
+        run: |
+          unset NODE_AUTH_TOKEN
+          npm publish --tag ${{ steps.npm-tag.outputs.tag }} --access public --provenance
