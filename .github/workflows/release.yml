@@ -56,4 +56,4 @@ jobs:
       - name: Publish
         run: |
           unset NODE_AUTH_TOKEN
-          npm publish --tag ${{ steps.npm-tag.outputs.tag }} --access public --provenance
+          pnpm publish --tag ${{ steps.npm-tag.outputs.tag }} --access public --no-git-checks --provenance
