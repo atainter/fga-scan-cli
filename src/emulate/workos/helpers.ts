@@ -233,8 +233,6 @@ export function formatDeviceAuthorization(d: WorkOSDeviceAuthorization): Record<
   };
 }
 
-// --- Phase 4: CRUD Domain formatters ---
-
 export function formatDirectory(d: WorkOSDirectory): Record<string, unknown> {
   return formatEntity(d);
 }

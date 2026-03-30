@@ -16,7 +16,7 @@ export class EventBus {
 
   constructor(private store: Store) {}
 
-  /** Rebuild the event-type index. Call after webhook endpoint CRUD or seed. */
+  /** Rebuild the event-type index.  Auto-called via collection hooks; call manually only in tests. */
   rebuildIndex(): void {
     this.endpointsByEvent.clear();
     this.catchAllEndpoints.clear();
