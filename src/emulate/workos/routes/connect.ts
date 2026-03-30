@@ -1,11 +1,11 @@
-import { type RouteContext, notFound, parseJsonBody, validationError } from '../../core/index.js';
+import { type RouteContext, notFound, parseJsonBody, validationError, parseListParams } from '../../core/index.js';
 import { generateId } from '../../core/index.js';
 import { getWorkOSStore } from '../store.js';
 import {
   formatConnectApplication,
   formatClientSecret,
-  parseListParams,
   generateVerificationToken,
+  formatListResponse,
 } from '../helpers.js';
 
 export function connectRoutes(ctx: RouteContext): void {
@@ -17,11 +17,7 @@ export function connectRoutes(ctx: RouteContext): void {
     const url = new URL(c.req.url);
     const params = parseListParams(url);
     const result = ws.connectApplications.list({ ...params });
-    return c.json({
-      object: 'list',
-      data: result.data.map(formatConnectApplication),
-      list_metadata: result.list_metadata,
-    });
+    return c.json(formatListResponse(result, formatConnectApplication));
   });
 
   // Create application

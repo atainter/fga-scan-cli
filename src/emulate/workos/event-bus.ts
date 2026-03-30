@@ -2,15 +2,38 @@ import type { Store } from '../core/index.js';
 import { getWorkOSStore } from './store.js';
 import type { WorkOSWebhookEndpoint, WorkOSEvent } from './entities.js';
 import { signWebhookPayload } from './webhook-signer.js';
+import type { WorkOSEventName } from './constants.js';
 
 export interface EventPayload {
-  event: string;
+  event: WorkOSEventName | string;
   data: Record<string, unknown>;
   environment_id?: string;
 }
 
 export class EventBus {
+  private endpointsByEvent = new Map<string, Set<string>>();
+  private catchAllEndpoints = new Set<string>();
+
   constructor(private store: Store) {}
+
+  /** Rebuild the event-type index. Call after webhook endpoint CRUD or seed. */
+  rebuildIndex(): void {
+    this.endpointsByEvent.clear();
+    this.catchAllEndpoints.clear();
+    const ws = getWorkOSStore(this.store);
+    for (const ep of ws.webhookEndpoints.all()) {
+      if (!ep.enabled) continue;
+      if (ep.events.length === 0) {
+        this.catchAllEndpoints.add(ep.id);
+      } else {
+        for (const evt of ep.events) {
+          const set = this.endpointsByEvent.get(evt) ?? new Set();
+          set.add(ep.id);
+          this.endpointsByEvent.set(evt, set);
+        }
+      }
+    }
+  }
 
   emit(payload: EventPayload): void {
     const ws = getWorkOSStore(this.store);
@@ -22,12 +45,16 @@ export class EventBus {
       environment_id: payload.environment_id ?? null,
     });
 
-    const endpoints = ws.webhookEndpoints.all();
-    for (const endpoint of endpoints) {
-      if (!endpoint.enabled) continue;
-      if (endpoint.events.length > 0 && !endpoint.events.includes(payload.event)) continue;
-      // Fire-and-forget — don't await
-      this.deliver(endpoint, event).catch(() => {});
+    // Pre-filtered: only endpoints that care about this event
+    const targetIds = new Set(this.catchAllEndpoints);
+    const eventSpecific = this.endpointsByEvent.get(payload.event);
+    if (eventSpecific) {
+      for (const id of eventSpecific) targetIds.add(id);
+    }
+
+    for (const id of targetIds) {
+      const endpoint = ws.webhookEndpoints.get(id);
+      if (endpoint) this.deliver(endpoint, event).catch(() => {});
     }
   }
 

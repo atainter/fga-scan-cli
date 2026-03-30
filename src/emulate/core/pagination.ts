@@ -21,11 +21,20 @@ export interface CursorPaginatedResult<T> {
   };
 }
 
+export function parseListParams(url: URL) {
+  const limit = parseInt(url.searchParams.get('limit') ?? '10') || 10;
+  const order = (url.searchParams.get('order') as 'asc' | 'desc') ?? 'desc';
+  const before = url.searchParams.get('before') ?? undefined;
+  const after = url.searchParams.get('after') ?? undefined;
+  return { limit, order, before, after };
+}
+
 export function cursorPaginate<T extends Entity>(
   items: T[],
   options: CursorPaginationOptions<T> = {},
 ): CursorPaginatedResult<T> {
-  let filtered = options.filter ? items.filter(options.filter) : [...items];
+  // Callers must pass a fresh array (e.g. Collection.all()) — sort mutates in-place
+  let filtered = options.filter ? items.filter(options.filter) : items;
 
   const order = options.order ?? 'desc';
   const defaultSort = (a: T, b: T) =>

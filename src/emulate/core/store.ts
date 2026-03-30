@@ -113,6 +113,12 @@ export class Collection<T extends Entity> {
     return this.items.delete(id);
   }
 
+  deleteBy(field: keyof T, value: string | number): number {
+    const items = this.findBy(field, value);
+    for (const item of items) this.delete(item.id);
+    return items.length;
+  }
+
   setHooks(hooks: CollectionHooks<T>): void {
     this.hooks = hooks;
   }
@@ -127,7 +133,11 @@ export class Collection<T extends Entity> {
 
   count(filter?: FilterFn<T>): number {
     if (!filter) return this.items.size;
-    return this.all().filter(filter).length;
+    let n = 0;
+    for (const item of this.items.values()) {
+      if (filter(item)) n++;
+    }
+    return n;
   }
 
   clear(): void {
@@ -166,6 +176,17 @@ export class Store {
 
   setData<V>(key: string, value: V): void {
     this._data.set(key, value);
+  }
+
+  deleteDataByPrefix(prefix: string): number {
+    let count = 0;
+    for (const key of this._data.keys()) {
+      if (key.startsWith(prefix)) {
+        this._data.delete(key);
+        count++;
+      }
+    }
+    return count;
   }
 
   reset(): void {

@@ -1,6 +1,7 @@
-import { type RouteContext, notFound, validationError, parseJsonBody } from '../../core/index.js';
+import { type RouteContext, notFound, validationError, parseJsonBody, parseListParams } from '../../core/index.js';
 import { getWorkOSStore } from '../store.js';
-import { formatOrganization, generateVerificationToken, parseListParams } from '../helpers.js';
+import { formatOrganization, generateVerificationToken, formatListResponse } from '../helpers.js';
+import type { WorkOSOrganizationDomain } from '../entities.js';
 
 export function organizationRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -61,11 +62,18 @@ export function organizationRoutes(ctx: RouteContext): void {
       },
     });
 
-    return c.json({
-      object: 'list',
-      data: result.data.map((org) => formatOrganization(org, ws)),
-      list_metadata: result.list_metadata,
-    });
+    // Pre-fetch all domains once to avoid N+1 lookups per org
+    const allDomains = ws.organizationDomains.all();
+    const domainsByOrg = new Map<string, WorkOSOrganizationDomain[]>();
+    for (const d of allDomains) {
+      const list = domainsByOrg.get(d.organization_id) ?? [];
+      list.push(d);
+      domainsByOrg.set(d.organization_id, list);
+    }
+
+    return c.json(
+      formatListResponse(result, (org) => formatOrganization(org, ws, { domains: domainsByOrg.get(org.id) ?? [] })),
+    );
   });
 
   app.get('/organizations/:id', (c) => {
@@ -131,15 +139,8 @@ export function organizationRoutes(ctx: RouteContext): void {
     const org = ws.organizations.get(c.req.param('id'));
     if (!org) throw notFound('Organization');
 
-    const domains = ws.organizationDomains.findBy('organization_id', org.id);
-    for (const d of domains) {
-      ws.organizationDomains.delete(d.id);
-    }
-
-    const memberships = ws.organizationMemberships.findBy('organization_id', org.id);
-    for (const m of memberships) {
-      ws.organizationMemberships.delete(m.id);
-    }
+    ws.organizationDomains.deleteBy('organization_id', org.id);
+    ws.organizationMemberships.deleteBy('organization_id', org.id);
 
     ws.organizations.delete(org.id);
     return c.body(null, 204);

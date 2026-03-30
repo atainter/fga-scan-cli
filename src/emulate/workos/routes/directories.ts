@@ -1,6 +1,6 @@
-import { type RouteContext, notFound } from '../../core/index.js';
+import { type RouteContext, notFound, parseListParams } from '../../core/index.js';
 import { getWorkOSStore } from '../store.js';
-import { formatDirectory, formatDirectoryUser, formatDirectoryGroup, parseListParams } from '../helpers.js';
+import { formatDirectory, formatDirectoryUser, formatDirectoryGroup, formatListResponse } from '../helpers.js';
 
 export function directoryRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -22,11 +22,7 @@ export function directoryRoutes(ctx: RouteContext): void {
       },
     });
 
-    return c.json({
-      object: 'list',
-      data: result.data.map(formatDirectory),
-      list_metadata: result.list_metadata,
-    });
+    return c.json(formatListResponse(result, formatDirectory));
   });
 
   // Get directory
@@ -41,11 +37,8 @@ export function directoryRoutes(ctx: RouteContext): void {
     const dir = ws.directories.get(c.req.param('id'));
     if (!dir) throw notFound('Directory');
 
-    const users = ws.directoryUsers.findBy('directory_id', dir.id);
-    for (const u of users) ws.directoryUsers.delete(u.id);
-
-    const groups = ws.directoryGroups.findBy('directory_id', dir.id);
-    for (const g of groups) ws.directoryGroups.delete(g.id);
+    ws.directoryUsers.deleteBy('directory_id', dir.id);
+    ws.directoryGroups.deleteBy('directory_id', dir.id);
 
     ws.directories.delete(dir.id);
     return c.body(null, 204);
@@ -67,11 +60,7 @@ export function directoryRoutes(ctx: RouteContext): void {
       },
     });
 
-    return c.json({
-      object: 'list',
-      data: result.data.map(formatDirectoryUser),
-      list_metadata: result.list_metadata,
-    });
+    return c.json(formatListResponse(result, formatDirectoryUser));
   });
 
   // Get directory user
@@ -95,11 +84,7 @@ export function directoryRoutes(ctx: RouteContext): void {
       },
     });
 
-    return c.json({
-      object: 'list',
-      data: result.data.map(formatDirectoryGroup),
-      list_metadata: result.list_metadata,
-    });
+    return c.json(formatListResponse(result, formatDirectoryGroup));
   });
 
   // Get directory group
