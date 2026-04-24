@@ -44,6 +44,7 @@ interface TokenResponse {
 
 interface AuthErrorResponse {
   error: string;
+  error_description?: string;
 }
 
 export class DeviceAuthError extends Error {
@@ -54,6 +55,8 @@ export class DeviceAuthError extends Error {
 }
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_POLL_INTERVAL_SECONDS = 5;
+const POLL_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_SCOPES = ['openid', 'email', 'staging-environment:credentials:read', 'offline_access'];
 
 function sleep(ms: number): Promise<void> {
@@ -122,15 +125,20 @@ export async function pollForToken(
 ): Promise<DeviceAuthResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const startTime = Date.now();
-  let pollInterval = options.interval * 1000;
+  let pollInterval = (options.interval || DEFAULT_POLL_INTERVAL_SECONDS) * 1000;
   const tokenUrl = `${options.authkitDomain}/oauth2/token`;
+  let pollCount = 0;
+  let lastPollSummary = 'no token response received';
 
   logInfo('[device-auth] Starting token polling, timeout:', timeoutMs);
   while (Date.now() - startTime < timeoutMs) {
     await sleep(pollInterval);
+    pollCount++;
     options.onPoll?.();
 
     let res: Response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), POLL_REQUEST_TIMEOUT_MS);
     try {
       res = await fetch(tokenUrl, {
         method: 'POST',
@@ -140,27 +148,37 @@ export async function pollForToken(
           device_code: deviceCode,
           client_id: options.clientId,
         }),
+        signal: controller.signal,
       });
-    } catch {
-      logInfo('[device-auth] Token poll network error, retrying');
+    } catch (error) {
+      logInfo(
+        '[device-auth] Token poll network error, retrying:',
+        error instanceof Error ? error.message : String(error),
+      );
       continue;
+    } finally {
+      clearTimeout(timeout);
     }
 
     let data;
     try {
       data = await res.json();
-    } catch {
-      logError('[device-auth] Invalid JSON response from auth server');
-      throw new DeviceAuthError('Invalid response from auth server');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logError('[device-auth] Invalid JSON response from auth server:', message);
+      throw new DeviceAuthError(`Invalid response from auth server: ${message}`);
     }
 
-    logInfo('[device-auth] Token poll response:', res.status, (data as AuthErrorResponse)?.error ?? 'success');
+    const errorData = data as AuthErrorResponse;
+    const elapsedMs = Date.now() - startTime;
+    lastPollSummary = res.ok
+      ? `${res.status} success`
+      : `${res.status} ${errorData.error ?? 'unknown_error'}${errorData.error_description ? ` (${errorData.error_description})` : ''}`;
+    logInfo('[device-auth] Token poll response:', `attempt=${pollCount}`, `elapsedMs=${elapsedMs}`, lastPollSummary);
     if (res.ok) {
       logInfo('[device-auth] Token received successfully');
       return parseTokenResponse(data as TokenResponse);
     }
-
-    const errorData = data as AuthErrorResponse;
 
     if (errorData.error === 'authorization_pending') {
       continue;
@@ -177,8 +195,10 @@ export async function pollForToken(
     throw new DeviceAuthError(`Token error: ${errorData.error}`);
   }
 
-  logError('[device-auth] Authentication timed out');
-  throw new DeviceAuthError('Authentication timed out after 5 minutes');
+  logError('[device-auth] Authentication timed out, last poll:', lastPollSummary);
+  throw new DeviceAuthError(
+    `Authentication timed out after ${Math.round(timeoutMs / 1000)} seconds (last token response: ${lastPollSummary})`,
+  );
 }
 
 function parseTokenResponse(data: TokenResponse): DeviceAuthResult {
