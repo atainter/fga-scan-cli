@@ -9,6 +9,8 @@ import { fetchStagingCredentials } from '../lib/staging-api.js';
 import { getConfig, saveConfig } from '../lib/config-store.js';
 import type { CliConfig } from '../lib/config-store.js';
 import { formatWorkOSCommand } from '../utils/command-invocation.js';
+import { autoInstallSkills } from './install-skill.js';
+import { isJsonMode } from '../utils/output.js';
 
 /**
  * Parse JWT payload
@@ -68,6 +70,40 @@ interface AuthErrorResponse {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Best-effort skill install after a successful auth-login.
+ *
+ * Mirrors the install.ts hook copy, but wraps `autoInstallSkills` in its own
+ * try/catch AND a 30s timeout so a skill install hang (e.g. blocked filesystem
+ * call) never blocks login completion. Login already succeeded by the time
+ * this runs — the user having a working session is the contract that must hold.
+ *
+ * Extracted from runLogin so it can be unit-tested without standing up the
+ * device-auth polling loop.
+ */
+export const SKILL_INSTALL_TIMEOUT_MS = 30 * 1000;
+
+export async function installSkillsAfterLogin(): Promise<void> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve(null), SKILL_INSTALL_TIMEOUT_MS);
+      // Don't keep the event loop alive on this timer — process should exit
+      // immediately if everything else has resolved.
+      timeoutHandle.unref?.();
+    });
+    const result = await Promise.race([autoInstallSkills(), timeout]);
+    if (result && !isJsonMode()) {
+      const skillWord = result.skills.length === 1 ? 'skill' : 'skills';
+      clack.log.info(`Installed ${result.skills.length} WorkOS ${skillWord} for ${result.agents.join(', ')}.`);
+    }
+  } catch {
+    // Skill install must never fail login.
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
 }
 
 /**
@@ -225,6 +261,10 @@ export async function runLogin(): Promise<void> {
         } else {
           clack.log.info(chalk.dim('Run `workos env add` to configure an environment manually'));
         }
+
+        // Best-effort skill install. Wrapped helper guarantees login never
+        // fails on skill errors.
+        await installSkillsAfterLogin();
         return;
       }
 
