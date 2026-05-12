@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Catalog } from './catalog.js';
 import type { ApiResponse } from './request.js';
 
@@ -69,12 +72,8 @@ vi.mock('../../utils/clack.js', () => ({
   },
 }));
 
-vi.mock('../../utils/environment.js', () => ({
-  isNonInteractiveEnvironment: vi.fn(() => false),
-}));
-
 const { setOutputMode } = await import('../../utils/output.js');
-const { isNonInteractiveEnvironment } = await import('../../utils/environment.js');
+const { resetInteractionModeForTests, setInteractionMode } = await import('../../utils/interaction-mode.js');
 const { runApiInteractive, runApiLs, runApiRequest } = await import('./index.js');
 
 function buildResponse(overrides: Partial<ApiResponse> = {}): ApiResponse {
@@ -94,6 +93,7 @@ describe('runApiInteractive', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetInteractionModeForTests();
     consoleOutput = [];
     stderrOutput = [];
     vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
@@ -112,11 +112,11 @@ describe('runApiInteractive', () => {
     setOutputMode('human');
   });
 
-  it('prints usage instructions when stdin/stdout is non-interactive', async () => {
+  it('prints usage instructions when interaction mode is agent', async () => {
     setOutputMode('human');
-    vi.mocked(isNonInteractiveEnvironment).mockReturnValueOnce(true);
-    await runApiInteractive();
-    expect(consoleOutput.join('\n')).toContain('Interactive mode requires a TTY');
+    setInteractionMode({ mode: 'agent', source: 'env' });
+    await expect(runApiInteractive()).rejects.toThrow(/__exit__:1/);
+    expect(stderrOutput.join('\n')).toContain('Interactive API mode requires human mode');
   });
 
   it('emits a structured tty_required error in JSON mode when non-interactive', async () => {
@@ -138,10 +138,8 @@ describe('runApiInteractive', () => {
 
   it('refuses to enter interactive mode in JSON mode even when a TTY is present', async () => {
     setOutputMode('json');
-    // Default mock returns false (TTY present); JSON mode must short-circuit
-    // before isNonInteractiveEnvironment() is even called.
+    // Default interaction mode is human; JSON mode must still short-circuit.
     await expect(runApiInteractive()).rejects.toThrow(/__exit__:1/);
-    expect(isNonInteractiveEnvironment).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleOutput).toEqual([]);
     const errorLine = stderrOutput.find((line) => {
@@ -161,6 +159,7 @@ describe('runApiLs', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetInteractionModeForTests();
     consoleOutput = [];
     vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
       consoleOutput.push(args.map(String).join(' '));
@@ -215,6 +214,7 @@ describe('runApiRequest', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetInteractionModeForTests();
     consoleOutput = [];
     stderrOutput = [];
     vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
@@ -367,14 +367,14 @@ describe('runApiRequest', () => {
     expect(mockApiRequest).toHaveBeenCalledWith(expect.objectContaining({ method: 'POST', body: '' }));
   });
 
-  it('refuses mutating requests without --yes in non-interactive human mode', async () => {
+  it('refuses mutating requests without --yes in agent mode with human output', async () => {
     setOutputMode('human');
-    vi.mocked(isNonInteractiveEnvironment).mockReturnValueOnce(true);
+    setInteractionMode({ mode: 'agent', source: 'env' });
     await expect(runApiRequest('/organizations', { method: 'POST', data: '{}' })).rejects.toThrow(/__exit__:1/);
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(mockApiRequest).not.toHaveBeenCalled();
     expect(mockConfirm).not.toHaveBeenCalled();
-    expect(stderrOutput.some((l) => l.includes('Refusing to POST'))).toBe(true);
+    expect(stderrOutput.some((l) => l.includes('agent mode require --yes'))).toBe(true);
   });
 
   it('exits with confirmation_required in JSON mode when a mutating request lacks --yes', async () => {
@@ -392,6 +392,74 @@ describe('runApiRequest', () => {
       }
     });
     expect(errorLine).toBeDefined();
+    const parsed = JSON.parse(errorLine!);
+    expect(parsed.error.recovery.hints[0].command).toBe("workos api /organizations --method POST '--data={}' --yes");
+  });
+
+  it('uses equals-form data flags so leading hyphens are preserved in confirmation recovery commands', async () => {
+    setOutputMode('json');
+    await expect(runApiRequest('/organizations', { method: 'POST', data: '-x' })).rejects.toThrow(/__exit__:1/);
+    const errorLine = stderrOutput.find((line) => {
+      try {
+        const parsed = JSON.parse(line) as { error?: { code?: string } };
+        return parsed.error?.code === 'confirmation_required';
+      } catch {
+        return false;
+      }
+    });
+    expect(errorLine).toBeDefined();
+    const parsed = JSON.parse(errorLine!);
+    expect(parsed.error.recovery.hints[0].command).toBe('workos api /organizations --method POST --data=-x --yes');
+  });
+
+  it('preserves --file in confirmation recovery commands', async () => {
+    setOutputMode('json');
+    const dir = mkdtempSync(join(tmpdir(), 'workos-api-'));
+    const file = join(dir, 'body.json');
+    writeFileSync(file, '{"name":"Acme"}');
+    try {
+      await expect(runApiRequest('/organizations', { method: 'PATCH', file })).rejects.toThrow(/__exit__:1/);
+      const errorLine = stderrOutput.find((line) => {
+        try {
+          const parsed = JSON.parse(line) as { error?: { code?: string } };
+          return parsed.error?.code === 'confirmation_required';
+        } catch {
+          return false;
+        }
+      });
+      expect(errorLine).toBeDefined();
+      const parsed = JSON.parse(errorLine!);
+      expect(parsed.error.recovery.hints[0].command).toBe(
+        `workos api /organizations --method PATCH --file=${file} --yes`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('omits confirmation recovery commands for stdin bodies', async () => {
+    setOutputMode('json');
+    const stdinBody = (async function* () {
+      yield Buffer.from('{"name":"Acme"}');
+    })();
+    const originalStdin = process.stdin;
+    Object.defineProperty(process, 'stdin', { value: stdinBody, configurable: true });
+    try {
+      await expect(runApiRequest('/organizations', { method: 'POST', file: '-' })).rejects.toThrow(/__exit__:1/);
+    } finally {
+      Object.defineProperty(process, 'stdin', { value: originalStdin, configurable: true });
+    }
+    const errorLine = stderrOutput.find((line) => {
+      try {
+        const parsed = JSON.parse(line) as { error?: { code?: string } };
+        return parsed.error?.code === 'confirmation_required';
+      } catch {
+        return false;
+      }
+    });
+    expect(errorLine).toBeDefined();
+    const parsed = JSON.parse(errorLine!);
+    expect(parsed.error.recovery.hints[0].command).toBeUndefined();
   });
 
   it('exits with empty_stdin_body when --file - is used and stdin is empty', async () => {

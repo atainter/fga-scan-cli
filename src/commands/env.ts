@@ -3,7 +3,9 @@ import clack from '../utils/clack.js';
 import { getConfig, saveConfig, isUnclaimedEnvironment } from '../lib/config-store.js';
 import type { CliConfig } from '../lib/config-store.js';
 import { outputSuccess, outputJson, exitWithError, isJsonMode } from '../utils/output.js';
-import { isNonInteractiveEnvironment } from '../utils/environment.js';
+import { isAgentMode, isCiMode, isPromptAllowed } from '../utils/interaction-mode.js';
+import { missingArgsRecovery } from '../utils/recovery-hints.js';
+import { formatWorkOSCommand } from '../utils/command-invocation.js';
 
 const ENV_NAME_REGEX = /^[a-z0-9\-_]+$/;
 
@@ -33,8 +35,16 @@ export async function runEnvAdd(options: {
     if (nameError) {
       exitWithError({ code: 'invalid_args', message: nameError });
     }
-  } else if (isNonInteractiveEnvironment()) {
-    exitWithError({ code: 'missing_args', message: 'Name and API key required in non-interactive mode' });
+  } else if (!isPromptAllowed()) {
+    exitWithError({
+      code: 'missing_args',
+      message: isAgentMode()
+        ? `Name and API key required in agent mode. Example: ${formatWorkOSCommand('env add staging sk_test_xxx --client-id client_xxx')}`
+        : isCiMode()
+          ? 'Name and API key required in CI mode.'
+          : 'Name and API key required when prompting is unavailable.',
+      recovery: missingArgsRecovery(undefined, 'Provide environment name and API key as positional arguments.'),
+    });
   } else {
     // Interactive mode
     const nameResult = await clack.text({

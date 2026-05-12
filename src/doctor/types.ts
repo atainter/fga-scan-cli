@@ -1,3 +1,5 @@
+import type { InteractionModeInfo } from '../utils/interaction-mode.js';
+
 export type IssueSeverity = 'error' | 'warning';
 
 export interface Issue {
@@ -65,6 +67,21 @@ export interface ConnectivityInfo {
   latencyMs: number | null;
   tlsValid: boolean;
   error?: string;
+}
+
+export interface HostExecutionFailure {
+  capability: string;
+  detail: string;
+  operation?: string;
+  target?: string;
+  label?: string;
+}
+
+export interface HostExecutionInfo {
+  mode: 'interactive' | 'non-interactive';
+  ok: boolean;
+  failures: HostExecutionFailure[];
+  warning?: string;
 }
 
 export interface DashboardSettings {
@@ -136,6 +153,7 @@ export interface SkillsRefreshResult {
 export interface DoctorReport {
   version: string;
   timestamp: string;
+  interactionMode: InteractionModeInfo;
   project: {
     path: string;
     packageManager: string | null;
@@ -145,6 +163,7 @@ export interface DoctorReport {
   runtime: RuntimeInfo;
   framework: FrameworkInfo;
   environment: EnvironmentInfo;
+  hostExecution: HostExecutionInfo;
   connectivity: ConnectivityInfo;
   dashboardSettings?: DashboardSettings;
   dashboardError?: string;

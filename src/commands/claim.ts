@@ -10,8 +10,10 @@ import open from 'opn';
 import clack from '../utils/clack.js';
 import { getActiveEnvironment, isUnclaimedEnvironment, markEnvironmentClaimed } from '../lib/config-store.js';
 import { createClaimNonce, UnclaimedEnvApiError } from '../lib/unclaimed-env-api.js';
+import { observeHostFailure } from '../lib/host-probe.js';
 import { logInfo, logError } from '../utils/debug.js';
 import { isJsonMode, outputJson, exitWithError } from '../utils/output.js';
+import { isAgentMode, isCiMode } from '../utils/interaction-mode.js';
 import { sleep } from '../lib/helper-functions.js';
 import { formatWorkOSCommand } from '../utils/command-invocation.js';
 
@@ -61,12 +63,29 @@ export async function runClaim(): Promise<void> {
       return;
     }
 
+    if (isCiMode()) {
+      exitWithError({
+        code: 'unsupported_in_ci',
+        message: 'Environment claim requires opening the claim URL outside CI.',
+        details: { claimUrl, nonce: result.nonce },
+      });
+    }
+
     clack.log.info(`Open this URL to claim your environment:\n\n  ${claimUrl}`);
 
     try {
-      open(claimUrl, { wait: false });
-      clack.log.info('Browser opened automatically');
+      await open(claimUrl, { wait: false });
+      if (isAgentMode()) {
+        clack.log.info('Browser launch attempted. If it did not open on the host, use the URL above.');
+      } else {
+        clack.log.info('Browser opened automatically');
+      }
     } catch (openError) {
+      observeHostFailure('browser-launch', openError, {
+        operation: 'open',
+        target: claimUrl,
+        label: 'environment claim browser',
+      });
       logError('[claim] Failed to open browser:', openError instanceof Error ? openError.message : String(openError));
       clack.log.info('Could not open browser — open the URL above manually.');
     }

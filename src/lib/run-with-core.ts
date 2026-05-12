@@ -8,7 +8,8 @@ import { CLIAdapter } from './adapters/cli-adapter.js';
 import { DashboardAdapter } from './adapters/dashboard-adapter.js';
 import type { InstallerAdapter } from './adapters/types.js';
 import type { InstallerOptions } from '../utils/types.js';
-import { isNonInteractiveEnvironment } from '../utils/environment.js';
+import { getInteractionMode, isAgentMode, isCiMode } from '../utils/interaction-mode.js';
+import { getOutputMode, isJsonMode, resolveEffectiveOutputMode, setOutputMode } from '../utils/output.js';
 import type {
   InstallerMachineContext,
   DetectionOutput,
@@ -51,6 +52,7 @@ import { autoConfigureWorkOSEnvironment } from './workos-management.js';
 import { detectPort, getCallbackPath } from './port-detection.js';
 import { writeEnvLocal } from './env-writer.js';
 import { getRegistry } from './registry.js';
+import { observeHostFailure } from './host-probe.js';
 import { formatWorkOSCommand } from '../utils/command-invocation.js';
 
 async function runIntegrationInstallerFn(integration: Integration, options: InstallerOptions): Promise<string> {
@@ -206,8 +208,14 @@ export async function runWithCore(options: InstallerOptions): Promise<void> {
     }
   };
 
+  const nonHumanMode = isAgentMode() || isCiMode();
+  if (nonHumanMode && !isJsonMode()) {
+    setOutputMode(resolveEffectiveOutputMode(getOutputMode(), getInteractionMode()));
+  }
+  const headlessMode = nonHumanMode && isJsonMode();
+
   let adapter: InstallerAdapter;
-  if (isNonInteractiveEnvironment()) {
+  if (headlessMode) {
     const { HeadlessAdapter } = await import('./adapters/headless-adapter.js');
     adapter = new HeadlessAdapter({
       emitter,
@@ -370,8 +378,13 @@ export async function runWithCore(options: InstallerOptions): Promise<void> {
         // Open browser
         try {
           const { default: openFn } = await import('opn');
-          await openFn(deviceAuth.verification_uri_complete);
-        } catch {
+          await openFn(deviceAuth.verification_uri_complete, { wait: false });
+        } catch (error) {
+          observeHostFailure('browser-launch', error, {
+            operation: 'open',
+            target: deviceAuth.verification_uri_complete,
+            label: 'installer device auth browser',
+          });
           // User can open manually
         }
 
@@ -493,7 +506,13 @@ export async function runWithCore(options: InstallerOptions): Promise<void> {
         inspectUrl = msg;
         console.log = originalLog;
         console.log(`Opening XState inspector: ${inspectUrl}`);
-        void open(inspectUrl);
+        void open(inspectUrl).catch((error: unknown) => {
+          observeHostFailure('browser-launch', error, {
+            operation: 'open',
+            target: inspectUrl,
+            label: 'XState inspector browser',
+          });
+        });
       } else {
         originalLog.apply(console, args);
       }
@@ -514,8 +533,9 @@ export async function runWithCore(options: InstallerOptions): Promise<void> {
 
   await adapter.start();
 
-  // Start telemetry session
-  const mode = isNonInteractiveEnvironment() ? 'headless' : augmentedOptions.dashboard ? 'tui' : 'cli';
+  // Start telemetry session. Analytics currently accepts cli/tui/headless only,
+  // so agent and CI mode both report through the existing headless bucket.
+  const mode = headlessMode ? 'headless' : augmentedOptions.dashboard ? 'tui' : 'cli';
   analytics.sessionStart(mode, getVersion());
 
   let installerStatus: 'success' | 'error' | 'cancelled' = 'success';
