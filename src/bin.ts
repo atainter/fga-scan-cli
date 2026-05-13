@@ -216,9 +216,20 @@ yargs(rawArgs)
     // skills/doctor/env/debug are utility commands where the warning is unnecessary.
     const command = String(argv._?.[0] ?? '');
     if (
-      ['auth', 'skills', 'doctor', 'env', 'claim', 'install', 'debug', 'dashboard', 'emulate', 'dev', ''].includes(
-        command,
-      )
+      [
+        'auth',
+        'skills',
+        'doctor',
+        'env',
+        'claim',
+        'install',
+        'debug',
+        'dashboard',
+        'emulate',
+        'dev',
+        'migrations',
+        '',
+      ].includes(command)
     )
       return;
     await applyInsecureStorage(argv.insecureStorage as boolean | undefined);
@@ -2381,6 +2392,27 @@ yargs(rawArgs)
     );
     return yargs.demandCommand(1, 'Run "workos debug <command>" for debug tools.').strict();
   })
+  .command(
+    'migrations',
+    'Migrate users from identity providers (Auth0, Cognito, Clerk, Firebase) to WorkOS',
+    (yargs) =>
+      yargs
+        .strictCommands(false)
+        .strict(false)
+        .help(false)
+        .version(false)
+        .options({
+          ...insecureStorageOption,
+          'api-key': { type: 'string' as const, describe: 'WorkOS API key' },
+        }),
+    async (argv) => {
+      await applyInsecureStorage(argv.insecureStorage);
+      const { resolveApiKey } = await import('./lib/api-key.js');
+      const { getMigrationsPassthroughArgs, runMigrations } = await import('./commands/migrations.js');
+      const passthrough = getMigrationsPassthroughArgs(rawArgs);
+      await runMigrations(passthrough, resolveApiKey({ apiKey: argv.apiKey }));
+    },
+  )
   .command(
     'dashboard',
     false, // hidden from help
