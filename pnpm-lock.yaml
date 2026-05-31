@@ -64,7 +64,7 @@ importers:
         version: 7.7.4
       uuid:
         specifier: ^13.0.0
-        version: 13.0.0
+        version: 13.0.1
       xstate:
         specifier: ^5.28.0
         version: 5.28.0
@@ -2078,8 +2078,8 @@ packages:
   url-parse@1.5.10:
     resolution: {integrity: sha512-WypcfiRhfeUP9vvF0j6rw0J3hrWrw6iZv3+22h6iRMJ/8z1Tj6XfLP4DsUix5MhMPnXpiHDoKyoZ/bdCkwBCiQ==}
 
-  uuid@13.0.0:
-    resolution: {integrity: sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w==}
+  uuid@13.0.1:
+    resolution: {integrity: sha512-9ezox2roIft6ExBVTVqibSd5dc5/47Sw/uY6b4SjQUT2TzQ0tltNquWA46y4xPQmdZYqvnio22SgWd41M86+jw==}
     hasBin: true
 
   uuid@9.0.1:
@@ -4197,7 +4197,7 @@ snapshots:
       requires-port: 1.0.0
     optional: true
 
-  uuid@13.0.0: {}
+  uuid@13.0.1: {}
 
   uuid@9.0.1: {}
 
