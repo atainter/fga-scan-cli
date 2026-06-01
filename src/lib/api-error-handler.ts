@@ -16,6 +16,42 @@ function isSdkException(
   return typeof e.status === 'number' && typeof e.requestID === 'string';
 }
 
+interface NormalizedApiError {
+  status: number;
+  code?: string;
+  errors?: Array<{ message: string }>;
+  message: string;
+}
+
+function normalizeApiError(error: unknown): NormalizedApiError | null {
+  if (error instanceof WorkOSApiError) {
+    return {
+      status: error.statusCode,
+      code: error.code,
+      errors: error.errors,
+      message: error.message,
+    };
+  }
+
+  if (isSdkException(error)) {
+    return {
+      status: error.status,
+      code: error.code,
+      errors: error.errors,
+      message: error.message,
+    };
+  }
+
+  return null;
+}
+
+function getApiErrorMessage(error: NormalizedApiError, resourceName: string): string {
+  if (error.status === 401) return 'Invalid API key. Check your environment configuration.';
+  if (error.status === 404) return `${resourceName} not found.`;
+  if (error.status === 422 && error.errors?.length) return error.errors.map((e) => e.message).join(', ');
+  return error.message;
+}
+
 /**
  * Create a resource-specific API error handler.
  * Handles both raw fetch errors (WorkOSApiError) and SDK exceptions.
@@ -23,42 +59,25 @@ function isSdkException(
  */
 export function createApiErrorHandler(resourceName: string) {
   return (error: unknown): never => {
-    // 1. Raw fetch errors (workos-api.ts)
-    if (error instanceof WorkOSApiError) {
+    const apiError = normalizeApiError(error);
+    if (apiError) {
+      const code = apiError.code ?? `http_${apiError.status}`;
       exitWithError({
-        code: error.code ?? `http_${error.statusCode}`,
-        message:
-          error.statusCode === 401
-            ? 'Invalid API key. Check your environment configuration.'
-            : error.statusCode === 404
-              ? `${resourceName} not found.`
-              : error.statusCode === 422 && error.errors?.length
-                ? error.errors.map((e) => e.message).join(', ')
-                : error.message,
-        details: error.errors,
+        code,
+        message: getApiErrorMessage(apiError, resourceName),
+        details: apiError.errors,
+        apiContext: {
+          status: apiError.status,
+          code,
+          resource: resourceName,
+        },
       });
     }
 
-    // 2. SDK exceptions (@workos-inc/node)
-    if (isSdkException(error)) {
-      exitWithError({
-        code: error.code ?? `http_${error.status}`,
-        message:
-          error.status === 401
-            ? 'Invalid API key. Check your environment configuration.'
-            : error.status === 404
-              ? `${resourceName} not found.`
-              : error.status === 422 && error.errors?.length
-                ? error.errors.map((e) => e.message).join(', ')
-                : error.message,
-        details: error.errors,
-      });
-    }
-
-    // 3. Fallback
     exitWithError({
       code: 'unknown_error',
       message: error instanceof Error ? error.message : 'Unknown error',
+      apiContext: { resource: resourceName },
     });
   };
 }

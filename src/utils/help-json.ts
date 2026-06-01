@@ -7,6 +7,7 @@
  */
 
 import { getVersion } from '../lib/settings.js';
+import { COMMAND_ALIASES } from '../lib/command-aliases.js';
 
 export interface OptionSchema {
   name: string;
@@ -1346,10 +1347,9 @@ const globalOptions: OptionSchema[] = [
 // Public API
 // ---------------------------------------------------------------------------
 
-const commandAliases: Record<string, string> = { org: 'organization' };
 const helpJsonCommandNames = new Set([
   ...commands.map((command) => command.name.split(' ')[0]),
-  ...Object.keys(commandAliases),
+  ...Object.keys(COMMAND_ALIASES),
 ]);
 
 /**
@@ -1369,7 +1369,7 @@ export function extractHelpJsonCommand(argv: string[]): string | undefined {
       continue;
     }
     if (!arg.startsWith('-') && helpJsonCommandNames.has(arg)) {
-      return commandAliases[arg] ?? arg;
+      return COMMAND_ALIASES[arg] ?? arg;
     }
   }
   return undefined;
@@ -1381,6 +1381,15 @@ export function extractHelpJsonCommand(argv: string[]): string | undefined {
  * @param subcommand - Optional command name to return a subtree for (e.g. "env").
  *                     Returns full tree if omitted or if command not found.
  */
+/**
+ * Top-level command names (first token of each registered command). Used by
+ * telemetry to recognise real commands without trusting arbitrary argv tokens
+ * (so option values / secrets are never recorded as a command name).
+ */
+export function getTopLevelCommandNames(): string[] {
+  return commands.map((c) => c.name.split(' ')[0]);
+}
+
 export function buildCommandTree(subcommand?: string): HelpOutput | CommandSchema {
   if (subcommand) {
     const match = commands.find((c) => c.name === subcommand);

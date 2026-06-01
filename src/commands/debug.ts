@@ -231,12 +231,21 @@ export async function runDebugSimulate({
   noKeyring,
   unclaimed,
   noAuth,
+  crash = false,
 }: {
   expiredToken: boolean;
   noKeyring: boolean;
   unclaimed: boolean;
   noAuth: boolean;
+  crash?: boolean;
 }): Promise<void> {
+  // Simulate an unexpected crash to exercise the crash-telemetry pipeline
+  // end-to-end. Throws a plain Error (not CliExit) so the bin.ts lifecycle
+  // records a `crash` event with a sanitized stack rather than a handled exit.
+  if (crash) {
+    throw new Error('Simulated crash for telemetry verification');
+  }
+
   // Validate: at least one flag
   if (!expiredToken && !noKeyring && !unclaimed && !noAuth) {
     exitWithError({
@@ -321,6 +330,7 @@ interface EnvVarInfo {
 }
 
 const ENV_VAR_CATALOG: { name: string; effect: string }[] = [
+  { name: 'WORKOS_DEBUG', effect: 'Set to "1" to enable verbose debug logging for all commands' },
   { name: 'WORKOS_API_KEY', effect: 'Bypasses credential resolution — used directly for API calls' },
   { name: 'WORKOS_MODE', effect: 'Controls interaction behavior: human, agent, or CI' },
   { name: 'WORKOS_FORCE_TTY', effect: 'Forces human (non-JSON) output mode, even when piped' },
@@ -330,6 +340,7 @@ const ENV_VAR_CATALOG: { name: string; effect: string }[] = [
   { name: 'WORKOS_DASHBOARD_URL', effect: 'Overrides dashboard URL (default: https://dashboard.workos.com)' },
   { name: 'WORKOS_AUTHKIT_DOMAIN', effect: 'Overrides AuthKit domain from settings' },
   { name: 'WORKOS_LLM_GATEWAY_URL', effect: 'Overrides LLM gateway URL from settings' },
+  { name: 'WORKOS_TELEMETRY_URL', effect: 'Overrides CLI telemetry URL from settings' },
   { name: 'INSTALLER_DEV', effect: 'Enables dev mode — loads .env.local at startup' },
   { name: 'INSTALLER_DISABLE_PROXY', effect: 'Disables the credential proxy for gateway auth' },
 ];
