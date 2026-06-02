@@ -1959,46 +1959,53 @@ async function runCli(): Promise<void> {
       registerSubcommand(
         yargs,
         'get <id>',
-        'Get a vault object',
-        (y) => y.positional('id', { type: 'string', demandOption: true }),
+        'Get a vault object (metadata only; use --decrypt to include value)',
+        (y) =>
+          y
+            .positional('id', { type: 'string', demandOption: true })
+            .option('decrypt', { type: 'boolean', default: false, describe: 'Include the decrypted secret value' }),
         async (argv) => {
           await applyInsecureStorage(argv.insecureStorage);
 
           const { resolveApiKey, resolveApiBaseUrl } = await import('./lib/api-key.js');
           const { runVaultGet } = await import('./commands/vault.js');
-          await runVaultGet(argv.id, resolveApiKey({ apiKey: argv.apiKey }), resolveApiBaseUrl());
+          await runVaultGet(argv.id, argv.decrypt, resolveApiKey({ apiKey: argv.apiKey }), resolveApiBaseUrl());
         },
       );
       registerSubcommand(
         yargs,
         'get-by-name <name>',
-        'Get a vault object by name',
-        (y) => y.positional('name', { type: 'string', demandOption: true }),
+        'Get a vault object by name (metadata only; use --decrypt to include value)',
+        (y) =>
+          y
+            .positional('name', { type: 'string', demandOption: true })
+            .option('decrypt', { type: 'boolean', default: false, describe: 'Include the decrypted secret value' }),
         async (argv) => {
           await applyInsecureStorage(argv.insecureStorage);
 
           const { resolveApiKey, resolveApiBaseUrl } = await import('./lib/api-key.js');
           const { runVaultGetByName } = await import('./commands/vault.js');
-          await runVaultGetByName(argv.name, resolveApiKey({ apiKey: argv.apiKey }), resolveApiBaseUrl());
+          await runVaultGetByName(argv.name, argv.decrypt, resolveApiKey({ apiKey: argv.apiKey }), resolveApiBaseUrl());
         },
       );
       registerSubcommand(
         yargs,
         'create',
-        'Create a vault object',
+        'Create a vault object (reads value from stdin when --value is omitted or -)',
         (y) =>
           y.options({
             name: { type: 'string', demandOption: true },
-            value: { type: 'string', demandOption: true },
-            org: { type: 'string' },
+            value: { type: 'string', describe: 'Secret value (omit or use - to read from stdin)' },
+            org: { type: 'string', demandOption: true, describe: 'Organization ID (required for key context)' },
           }),
         async (argv) => {
           await applyInsecureStorage(argv.insecureStorage);
 
           const { resolveApiKey, resolveApiBaseUrl } = await import('./lib/api-key.js');
-          const { runVaultCreate } = await import('./commands/vault.js');
+          const { runVaultCreate, readValueFromStdin } = await import('./commands/vault.js');
+          const value = argv.value === undefined || argv.value === '-' ? await readValueFromStdin() : argv.value;
           await runVaultCreate(
-            { name: argv.name, value: argv.value, org: argv.org },
+            { name: argv.name, value, org: argv.org },
             resolveApiKey({ apiKey: argv.apiKey }),
             resolveApiBaseUrl(),
           );
@@ -2007,18 +2014,20 @@ async function runCli(): Promise<void> {
       registerSubcommand(
         yargs,
         'update <id>',
-        'Update a vault object',
+        'Update a vault object (reads value from stdin when --value is omitted or -)',
         (y) =>
-          y
-            .positional('id', { type: 'string', demandOption: true })
-            .options({ value: { type: 'string', demandOption: true }, 'version-check': { type: 'string' } }),
+          y.positional('id', { type: 'string', demandOption: true }).options({
+            value: { type: 'string', describe: 'New value (omit or use - to read from stdin)' },
+            'version-check': { type: 'string' },
+          }),
         async (argv) => {
           await applyInsecureStorage(argv.insecureStorage);
 
           const { resolveApiKey, resolveApiBaseUrl } = await import('./lib/api-key.js');
-          const { runVaultUpdate } = await import('./commands/vault.js');
+          const { runVaultUpdate, readValueFromStdin } = await import('./commands/vault.js');
+          const value = argv.value === undefined || argv.value === '-' ? await readValueFromStdin() : argv.value;
           await runVaultUpdate(
-            { id: argv.id, value: argv.value, versionCheck: argv.versionCheck },
+            { id: argv.id, value, versionCheck: argv.versionCheck },
             resolveApiKey({ apiKey: argv.apiKey }),
             resolveApiBaseUrl(),
           );
@@ -2061,6 +2070,38 @@ async function runCli(): Promise<void> {
           const { resolveApiKey, resolveApiBaseUrl } = await import('./lib/api-key.js');
           const { runVaultListVersions } = await import('./commands/vault.js');
           await runVaultListVersions(argv.id, resolveApiKey({ apiKey: argv.apiKey }), resolveApiBaseUrl());
+        },
+      );
+      registerSubcommand(
+        yargs,
+        'run',
+        'Run a command with Vault secrets injected as environment variables',
+        (y) =>
+          y.options({
+            secret: {
+              type: 'string',
+              array: true,
+              describe: 'Map a vault object to an env var: ENV_VAR=vault-name (repeatable)',
+              demandOption: true,
+            },
+            env: { type: 'string', describe: 'Environment name to read API key from (defaults to active)' },
+            'dry-run': { type: 'boolean', default: false, describe: 'Print which secrets would be injected, no fetch' },
+          }),
+        async (argv) => {
+          await applyInsecureStorage(argv.insecureStorage);
+
+          const { runVaultRun } = await import('./commands/vault-run.js');
+          const childCommand = (argv['--'] as string[] | undefined) ?? [];
+          const exitCode = await runVaultRun(
+            {
+              secrets: argv.secret as string[],
+              command: childCommand,
+              env: argv.env,
+              dryRun: argv.dryRun,
+            },
+            argv.apiKey as string | undefined,
+          );
+          if (typeof exitCode === 'number') process.exit(exitCode);
         },
       );
       return yargs.demandCommand(1, 'Please specify a vault subcommand').strict();
