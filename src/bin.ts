@@ -200,10 +200,6 @@ const installerOptions = {
     describe: 'Directory to install WorkOS AuthKit in',
     type: 'string' as const,
   },
-  integration: {
-    describe: 'Integration to set up',
-    type: 'string' as const,
-  },
   'force-install': {
     default: false,
     describe: 'Force install packages even if peer dependency checks fail',
@@ -234,6 +230,16 @@ const installerOptions = {
     default: true,
     describe: 'Check for dirty working tree (use --no-git-check to skip)',
     type: 'boolean' as const,
+  },
+  scaffold: {
+    default: false,
+    describe: 'Scaffold a new Next.js app when run in an empty directory',
+    type: 'boolean' as const,
+  },
+  pm: {
+    describe: 'Package manager for the scaffolded app',
+    choices: ['npm', 'pnpm', 'yarn', 'bun'] as const,
+    type: 'string' as const,
   },
 };
 
