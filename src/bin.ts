@@ -552,6 +552,11 @@ async function runCli(): Promise<void> {
               description:
                 "Path to an existing data model artifact (a previous scan's JSON or a Mermaid erDiagram) — skips AI discovery",
             },
+            'ai-discovery': {
+              type: 'boolean',
+              default: false,
+              description: 'Force AI-based discovery instead of the deterministic schema parsers',
+            },
             code: {
               type: 'boolean',
               default: false,

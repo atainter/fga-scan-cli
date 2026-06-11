@@ -135,6 +135,8 @@ export interface FgaScanOptions {
    * scan, or a Mermaid erDiagram). Skips the AI discovery passes entirely.
    */
   model?: string;
+  /** Force AI-based discovery, skipping the deterministic schema parsers */
+  aiDiscovery?: boolean;
   /** Bypass the LLM gateway and use ANTHROPIC_API_KEY directly */
   direct?: boolean;
   /** Also generate integration code snippets (slower, opt-in follow-up pass) */

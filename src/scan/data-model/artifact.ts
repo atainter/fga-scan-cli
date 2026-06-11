@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { normalizeDiscovery } from './parse.js';
+import { synthesizeDomains } from './domains.js';
 import type { DataModelDiscovery, EntityRelationship } from './types.js';
 
 export const MODEL_ARTIFACT_KIND = 'workos-data-model';
@@ -97,41 +98,10 @@ export function parseMermaidErd(content: string, sourcePath: string): DataModelD
 
   if (entityNames.size === 0) return null;
 
-  // Synthesize domains from connected components, named after the hub entity
-  const adjacency = new Map<string, Set<string>>();
-  for (const name of entityNames) adjacency.set(name, new Set());
-  for (const { from, rel } of relationships) {
-    adjacency.get(from)!.add(rel.to);
-    adjacency.get(rel.to)!.add(from);
-  }
-
-  const visited = new Set<string>();
-  const domains: { name: string; description?: string; entities: string[] }[] = [];
-  for (const name of [...entityNames].sort()) {
-    if (visited.has(name)) continue;
-    const component: string[] = [];
-    const queue = [name];
-    visited.add(name);
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      component.push(current);
-      for (const neighbor of adjacency.get(current) ?? []) {
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor);
-          queue.push(neighbor);
-        }
-      }
-    }
-    if (component.length < 2) continue; // singletons fall into the "Other" catch-all
-    const hub = component.reduce((best, c) =>
-      (adjacency.get(c)?.size ?? 0) > (adjacency.get(best)?.size ?? 0) ? c : best,
-    );
-    domains.push({
-      name: hub,
-      description: `Entities connected to ${hub}`,
-      entities: component.sort(),
-    });
-  }
+  const domains = synthesizeDomains(
+    [...entityNames],
+    relationships.map((r) => ({ from: r.from, to: r.rel.to })),
+  );
 
   return normalizeDiscovery({
     source: 'mermaid-erd',

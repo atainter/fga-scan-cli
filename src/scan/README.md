@@ -29,6 +29,16 @@ then resolve scope from the flags (or analyze everything).
 - `scope.ts` — pure scope narrowing (`applyScope`) + `--domains`/`--entities` flag resolution
 - `picker.ts` — `promptForDomain` (single domain or all, shown after the outline); `promptForScope`
   retained for entity-level selection
+- `parsers/` — **deterministic schema parsers, tried before any AI discovery**: Prisma
+  (`@mrleebo/prisma-ast`), Drizzle migration snapshots (plain JSON, no TS parsing), Rails
+  `db/schema.rb` (structured line parser), DBML + MySQL DDL (`@dbml/core`, the dbdiagram.io
+  engine), and Postgres DDL/migrations (`pgsql-ast-parser`, per-statement error recovery).
+  All parsers target a shared `RawSchema` intermediate (`raw-schema.ts`); one converter derives
+  relationships from FK constraints (FK → belongsTo, unique FK → hasOne, pure join table →
+  manyToMany — tables with payload columns like membership `role` stay entities). When a parser
+  succeeds, BOTH AI discovery passes are skipped: phase 1 is exact, instant, and free.
+  `--ai-discovery` forces the agent route. Unsupported stacks (SQLAlchemy, Django, Sequelize,
+  GORM, JPA…) fall back to AI discovery automatically.
 - `artifact.ts` — load/save pre-existing model artifacts. `--model <path>` accepts a previous
   scan's saved JSON or a Mermaid `erDiagram` (bare `.mmd` or inside a markdown fence) and skips
   AI discovery entirely; after every AI discovery the CLI saves a reusable artifact to tmp and

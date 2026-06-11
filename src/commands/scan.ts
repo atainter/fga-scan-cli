@@ -30,6 +30,7 @@ export interface ScanFgaArgs {
   domains?: string;
   entities?: string;
   model?: string;
+  aiDiscovery?: boolean;
   code?: boolean;
   direct?: boolean;
   debug?: boolean;
@@ -55,6 +56,11 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
   const renderPhase = json
     ? undefined
     : (phase: { phase: string; usage: Parameters<typeof formatUsageLine>[0] }) => {
+        if (phase.phase === 'parse') {
+          spinner?.stop('Parsed data model deterministically · 0 tokens · $0.00');
+          spinner?.start('Working…');
+          return;
+        }
         const label =
           {
             outline: 'Outlined data model',
@@ -96,6 +102,7 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
       domains: argv.domains,
       entities: argv.entities,
       model: argv.model,
+      aiDiscovery: argv.aiDiscovery,
       onDiscovery: persistDiscovery,
       onStatus: (message) => spinner?.message(message),
       onPhase: renderPhase,

@@ -20,12 +20,17 @@ const mockLoadModelArtifact = vi.fn();
 vi.mock('../data-model/artifact.js', () => ({
   loadModelArtifact: (...args: unknown[]) => mockLoadModelArtifact(...args),
 }));
+const mockParseDeterministically = vi.fn();
+vi.mock('../data-model/parsers/registry.js', () => ({
+  parseDataModelDeterministically: (...args: unknown[]) => mockParseDeterministically(...args),
+}));
 const usage = { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.01, numTurns: 1 };
 const emptyUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, numTurns: 0 };
 
 vi.mock('../agent.js', () => ({
   runScanAgent: (...args: unknown[]) => mockRunScanAgent(...args),
   runScanModel: (...args: unknown[]) => mockRunScanModel(...args),
+  EMPTY_SCAN_USAGE: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, numTurns: 0 },
   sumScanUsage: (list: (typeof usage)[]) =>
     list.reduce(
       (a, u) => ({
@@ -83,6 +88,7 @@ const analysis: FgaAnalysis = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockParseDeterministically.mockResolvedValue(null);
   mockRunScanAgent.mockResolvedValue({ outputText: '```json\n{}\n```', model: 'snippets-model', durationMs: 1, usage });
   mockRunScanModel.mockResolvedValue({ outputText: '```json\n{}\n```', model: 'reason-model', durationMs: 1, usage });
   mockParseFgaAgentOutput.mockReturnValue(analysis);
@@ -196,6 +202,52 @@ describe('runFgaScan — pick-a-domain-first ordering', () => {
     expect(report.analysis?.integrationSnippets).toHaveLength(1);
     // A dedicated 'snippets' usage phase is appended for the extra pass.
     expect(report.usage.phases.map((p) => p.phase)).toContain('snippets');
+  });
+
+  it('deterministic parse: skips BOTH AI discovery passes and records a free phase', async () => {
+    mockParseDeterministically.mockResolvedValue({
+      discovery: fullModel,
+      parser: 'prisma',
+      files: ['prisma/schema.prisma'],
+    });
+    const selectScope = vi.fn(async () => ({ mode: 'domains' as const, domains: ['Billing'] }));
+    const onDiscovery = vi.fn();
+
+    const report = await runFgaScan({ installDir: '/tmp/app', selectScope, onDiscovery });
+
+    expect(mockDiscoverDomainOutline).not.toHaveBeenCalled();
+    expect(mockDiscoverDataModel).not.toHaveBeenCalled();
+    // Picker runs against the parsed model; the artifact gets persisted
+    expect(selectScope).toHaveBeenCalledWith(fullModel);
+    expect(onDiscovery).toHaveBeenCalledWith(fullModel);
+
+    expect(report.scope).toEqual({ mode: 'domains', domains: ['Billing'] });
+    expect(report.dataModel?.entities.map((e) => e.name)).toEqual(['Invoice']);
+    expect(report.analysis).toBe(analysis);
+    // A zero-cost 'parse' phase is recorded, then only analysis consumes tokens
+    expect(report.usage.phases.map((p) => p.phase)).toEqual(['parse', 'analysis']);
+    expect(report.usage.phases[0].usage.costUsd).toBe(0);
+    expect(report.usage.phases[0].model).toBe('deterministic:prisma');
+  });
+
+  it('--ai-discovery forces the agent route past the deterministic parsers', async () => {
+    mockDiscoverDataModel.mockResolvedValue({ discovery: fullModel, model: 'full-model', durationMs: 1, usage });
+
+    await runFgaScan({ installDir: '/tmp/app', aiDiscovery: true, domains: 'Billing' });
+
+    expect(mockParseDeterministically).not.toHaveBeenCalled();
+    expect(mockDiscoverDataModel).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to AI discovery when no deterministic source parses', async () => {
+    mockParseDeterministically.mockResolvedValue(null);
+    mockDiscoverDataModel.mockResolvedValue({ discovery: fullModel, model: 'full-model', durationMs: 1, usage });
+
+    const report = await runFgaScan({ installDir: '/tmp/app', domains: 'Billing' });
+
+    expect(mockParseDeterministically).toHaveBeenCalledTimes(1);
+    expect(mockDiscoverDataModel).toHaveBeenCalledTimes(1);
+    expect(report.usage.phases.map((p) => p.phase)).toEqual(['discovery', 'analysis']);
   });
 
   it('--model artifact: skips ALL AI discovery and scopes the loaded model', async () => {
