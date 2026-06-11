@@ -20,6 +20,7 @@ import {
   serveFgaReport,
 } from '../scan/fga/index.js';
 import { promptForDomain } from '../scan/data-model/picker.js';
+import { serializeModelArtifact } from '../scan/data-model/artifact.js';
 
 export interface ScanFgaArgs {
   installDir?: string;
@@ -28,6 +29,7 @@ export interface ScanFgaArgs {
   out?: string;
   domains?: string;
   entities?: string;
+  model?: string;
   code?: boolean;
   direct?: boolean;
   debug?: boolean;
@@ -64,6 +66,24 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
         spinner?.start('Working…');
       };
 
+  // Persist the discovered model so re-runs (and teammates) can skip AI
+  // discovery via --model. Written fire-and-forget mid-scan; awaited + logged
+  // after the scan completes.
+  let savedModel: { path: string; write: Promise<boolean> } | undefined;
+  const persistDiscovery =
+    json || argv.model
+      ? undefined
+      : (discovery: Parameters<typeof serializeModelArtifact>[0]) => {
+          const path = join(tmpdir(), `workos-data-model-${Date.now()}.json`);
+          savedModel = {
+            path,
+            write: writeFile(path, serializeModelArtifact(discovery, installDir), 'utf-8').then(
+              () => true,
+              () => false,
+            ),
+          };
+        };
+
   try {
     let report = await runFgaScan({
       installDir,
@@ -75,6 +95,8 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
       debug: argv.debug,
       domains: argv.domains,
       entities: argv.entities,
+      model: argv.model,
+      onDiscovery: persistDiscovery,
       onStatus: (message) => spinner?.message(message),
       onPhase: renderPhase,
       // Pick-a-domain-first: between the cheap outline and the deep pass —
@@ -102,6 +124,10 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
     }
 
     formatFgaReport(report);
+
+    if (savedModel && (await savedModel.write)) {
+      clack.log.info(`Data model saved — reuse it with --model ${savedModel.path}`);
+    }
 
     if (!report.analysis) {
       exitWithCode(ExitCode.GENERAL_ERROR);

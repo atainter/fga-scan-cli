@@ -29,6 +29,11 @@ then resolve scope from the flags (or analyze everything).
 - `scope.ts` — pure scope narrowing (`applyScope`) + `--domains`/`--entities` flag resolution
 - `picker.ts` — `promptForDomain` (single domain or all, shown after the outline); `promptForScope`
   retained for entity-level selection
+- `artifact.ts` — load/save pre-existing model artifacts. `--model <path>` accepts a previous
+  scan's saved JSON or a Mermaid `erDiagram` (bare `.mmd` or inside a markdown fence) and skips
+  AI discovery entirely; after every AI discovery the CLI saves a reusable artifact to tmp and
+  prints a `--model` hint. Mermaid imports synthesize domains from relationship-graph connected
+  components. This is also the fixture mechanism for iterating on phase 2 without running phase 1.
 
 **Trade-off:** picking one domain defers all heavy work to that domain; picking "all" adds one
 cheap outline pass before the full deep discovery. Models are unchanged (Opus throughout).

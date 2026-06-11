@@ -96,6 +96,9 @@ export function formatFgaReport(report: FgaScanReport): void {
   if (report.dataModel?.source) {
     console.log(`   Schema source:    ${report.dataModel.source}`);
   }
+  if (report.modelArtifact) {
+    console.log(`   Model from:       ${report.modelArtifact} (AI discovery skipped)`);
+  }
   if (report.scope.mode !== 'all') {
     const scopeList = report.scope.mode === 'domains' ? report.scope.domains : report.scope.entities;
     console.log(`   Scope:            ${report.scope.mode}: ${(scopeList ?? []).join(', ')}`);

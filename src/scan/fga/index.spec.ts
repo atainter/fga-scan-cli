@@ -16,6 +16,10 @@ vi.mock('../data-model/discover.js', () => ({
   discoverDomainOutline: (...args: unknown[]) => mockDiscoverDomainOutline(...args),
   discoverDataModel: (...args: unknown[]) => mockDiscoverDataModel(...args),
 }));
+const mockLoadModelArtifact = vi.fn();
+vi.mock('../data-model/artifact.js', () => ({
+  loadModelArtifact: (...args: unknown[]) => mockLoadModelArtifact(...args),
+}));
 const usage = { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.01, numTurns: 1 };
 const emptyUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, numTurns: 0 };
 
@@ -192,6 +196,51 @@ describe('runFgaScan — pick-a-domain-first ordering', () => {
     expect(report.analysis?.integrationSnippets).toHaveLength(1);
     // A dedicated 'snippets' usage phase is appended for the extra pass.
     expect(report.usage.phases.map((p) => p.phase)).toContain('snippets');
+  });
+
+  it('--model artifact: skips ALL AI discovery and scopes the loaded model', async () => {
+    mockLoadModelArtifact.mockResolvedValue(fullModel);
+    const selectScope = vi.fn(async () => ({ mode: 'domains' as const, domains: ['Billing'] }));
+    const onDiscovery = vi.fn();
+
+    const report = await runFgaScan({
+      installDir: '/tmp/app',
+      model: 'model.json',
+      selectScope,
+      onDiscovery,
+    });
+
+    expect(mockLoadModelArtifact).toHaveBeenCalledWith('model.json');
+    expect(mockDiscoverDomainOutline).not.toHaveBeenCalled();
+    expect(mockDiscoverDataModel).not.toHaveBeenCalled();
+    // The picker still runs against the loaded model...
+    expect(selectScope).toHaveBeenCalledWith(fullModel);
+    // ...but nothing is re-persisted (the artifact already exists).
+    expect(onDiscovery).not.toHaveBeenCalled();
+
+    expect(report.modelArtifact).toBe('model.json');
+    expect(report.scope).toEqual({ mode: 'domains', domains: ['Billing'] });
+    expect(report.dataModel?.entities.map((e) => e.name)).toEqual(['Invoice']);
+    expect(report.analysis).toBe(analysis);
+    // Only the analysis pass consumed tokens.
+    expect(report.usage.phases.map((p) => p.phase)).toEqual(['analysis']);
+  });
+
+  it('--model artifact: propagates loader errors as scan failures', async () => {
+    mockLoadModelArtifact.mockRejectedValue(new Error('Unrecognized model artifact format in x.txt'));
+
+    await expect(runFgaScan({ installDir: '/tmp/app', model: 'x.txt' })).rejects.toThrow(/Unrecognized/);
+    expect(mockDiscoverDataModel).not.toHaveBeenCalled();
+  });
+
+  it('calls onDiscovery with the FULL model after AI discovery (before scoping)', async () => {
+    mockDiscoverDataModel.mockResolvedValue({ discovery: fullModel, model: 'full-model', durationMs: 1, usage });
+    const onDiscovery = vi.fn();
+
+    await runFgaScan({ installDir: '/tmp/app', domains: 'Billing', onDiscovery });
+
+    expect(onDiscovery).toHaveBeenCalledTimes(1);
+    expect(onDiscovery).toHaveBeenCalledWith(fullModel);
   });
 
   it('generateIntegrationSnippets no-ops when there is no analysis', async () => {
