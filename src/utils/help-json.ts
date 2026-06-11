@@ -298,6 +298,22 @@ const commands: CommandSchema[] = [
             hidden: false,
           },
           {
+            name: 'model',
+            type: 'string',
+            description:
+              'Path to an existing data model artifact (a previous scan’s JSON or a Mermaid erDiagram) — skips AI discovery',
+            required: false,
+            hidden: false,
+          },
+          {
+            name: 'ai-discovery',
+            type: 'boolean',
+            description: 'Force AI-based discovery instead of the deterministic schema parsers',
+            required: false,
+            default: false,
+            hidden: false,
+          },
+          {
             name: 'code',
             type: 'boolean',
             description: 'Also generate integration code snippets (slower; prompted interactively otherwise)',

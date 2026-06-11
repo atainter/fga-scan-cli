@@ -14,6 +14,10 @@ interface SourcePattern {
 const SOURCE_PATTERNS: SourcePattern[] = [
   { kind: 'prisma', patterns: ['**/schema.prisma', '**/prisma/schema/**/*.prisma'] },
   { kind: 'drizzle', patterns: ['**/drizzle.config.{ts,js,mjs}', '**/db/schema.{ts,js}', '**/db/schema/**/*.{ts,js}'] },
+  // drizzle-kit migration snapshots: the full schema as plain JSON — the
+  // deterministic parser's preferred Drizzle source
+  { kind: 'drizzle-snapshot', patterns: ['**/drizzle/**/meta/*_snapshot.json', '**/migrations/meta/*_snapshot.json'] },
+  { kind: 'dbml', patterns: ['**/*.dbml'] },
   { kind: 'typeorm', patterns: ['**/*.entity.{ts,js}'] },
   { kind: 'sql-migrations', patterns: ['**/migrations/**/*.sql', '**/migrate/**/*.sql'] },
   { kind: 'rails', patterns: ['db/schema.rb', 'app/models/**/*.rb'] },

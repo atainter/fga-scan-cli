@@ -2,8 +2,10 @@ import { checkLanguage } from '../../doctor/checks/language.js';
 import { checkFramework } from '../../doctor/checks/framework.js';
 import { collectDataModelHints } from './collectors.js';
 import { buildFgaScanPrompt, buildIntegrationSnippetsPrompt } from './agent-prompt.js';
-import { runScanAgent, runScanModel, sumScanUsage, type ScanUsage } from '../agent.js';
+import { runScanAgent, runScanModel, sumScanUsage, EMPTY_SCAN_USAGE, type ScanUsage } from '../agent.js';
 import { discoverDataModel, discoverDomainOutline } from '../data-model/discover.js';
+import { loadModelArtifact } from '../data-model/artifact.js';
+import { parseDataModelDeterministically } from '../data-model/parsers/registry.js';
 import { applyScope, resolveScopeFromFlags } from '../data-model/scope.js';
 import { parseFgaAgentOutput, parseIntegrationSnippets } from './parse.js';
 import type { DataModelDiscovery, ScopeSelection } from '../data-model/types.js';
@@ -13,13 +15,17 @@ import type { DoctorOptions } from '../../doctor/types.js';
 export const FGA_SCAN_VERSION = '1.0.0';
 
 /**
- * Scan flow (pick-a-domain-first):
+ * Scan flow (deterministic-first, then pick-a-domain):
+ *   0.  Deterministic parse — when a supported schema source exists (Prisma,
+ *       Drizzle snapshots, Rails schema.rb, DBML, SQL migrations), real
+ *       parsers produce the full model instantly for $0 and BOTH AI discovery
+ *       passes are skipped. `--ai-discovery` forces the agent route instead.
  *   1a. Outline — a cheap read-only pass lists entities + domains (no
  *       relationships) so the user can pick a domain up front. Interactive,
  *       unflagged runs only.
  *   1b. Deep discovery — extracts relationships for the picked domain only
  *       (or the whole model for headless/flagged/"all" runs).
- *   2.  Analysis — a second agent pass proposes an FGA model for the scoped
+ *   2.  Analysis — a single model call proposes an FGA model for the scoped
  *       entities only.
  */
 export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport> {
@@ -52,6 +58,12 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     dataModelHints,
   };
 
+  let discovery: DataModelDiscovery | null;
+  let discoveryModel: string;
+  let scope: ScopeSelection = { mode: 'all' };
+  let scopeWarnings: string[] | undefined;
+  let modelArtifact: string | undefined;
+
   // Accumulate per-pass token/cost usage. tally() summarizes whatever passes
   // ran by the time we return — including the early-skip paths.
   const phases: ScanPhaseUsage[] = [];
@@ -69,23 +81,80 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     usage: tally(),
     dataModel,
     scope,
+    modelArtifact,
     analysis: null,
     durationMs: Date.now() - startTime,
     skipped: true,
     skipReason: reason,
   });
 
-  // Phase 1: produce the (scoped) data model to analyze. Two routes:
+  // Phase 1: produce the (scoped) data model to analyze. Four routes:
+  //  - --model artifact: load a pre-existing model (previous scan's JSON or a
+  //    Mermaid ERD) — no AI discovery at all. The picker/flags still scope it.
+  //  - Deterministic parse: a supported schema source parsed with real parsers —
+  //    exact, instant, free. Skipped with --ai-discovery.
   //  - Interactive + no flags: cheap OUTLINE → user picks a domain → focused
   //    deep discovery, so relationship extraction only runs on the chosen domain.
   //  - Headless / flagged: full discovery, then resolve scope from flags (or all).
   const hasFlags = Boolean(options.domains || options.entities);
-  let discovery: DataModelDiscovery | null;
-  let discoveryModel: string;
-  let scope: ScopeSelection = { mode: 'all' };
-  let scopeWarnings: string[] | undefined;
 
-  if (options.selectScope && !hasFlags) {
+  let deterministic: Awaited<ReturnType<typeof parseDataModelDeterministically>> = null;
+  if (!options.model && !options.aiDiscovery) {
+    onStatus('Trying deterministic schema parsers...');
+    const parseStart = Date.now();
+    deterministic = await parseDataModelDeterministically(options.installDir, dataModelHints);
+    if (deterministic) {
+      recordPhase('parse', {
+        model: `deterministic:${deterministic.parser}`,
+        durationMs: Date.now() - parseStart,
+        usage: { ...EMPTY_SCAN_USAGE },
+      });
+    }
+  }
+
+  if (options.model) {
+    onStatus('Loading data model artifact...');
+    // Throws with an actionable message on unreadable/unrecognized artifacts —
+    // the command layer renders it as the scan failure.
+    const loaded = await loadModelArtifact(options.model);
+    modelArtifact = options.model;
+    discoveryModel = 'none (model artifact)';
+
+    if (loaded.entities.length === 0) {
+      return noModel(discoveryModel, loaded, scope, 'The model artifact contained no entities');
+    }
+
+    const flagScope = resolveScopeFromFlags(loaded, { domains: options.domains, entities: options.entities });
+    if (flagScope) {
+      scope = flagScope.selection;
+      if (flagScope.unknown.length > 0) {
+        scopeWarnings = flagScope.unknown.map(
+          (name) => `Unknown ${scope.mode === 'domains' ? 'domain' : 'entity'}: "${name}"`,
+        );
+      }
+    } else if (options.selectScope) {
+      scope = await options.selectScope(loaded);
+    }
+    discovery = applyScope(loaded, scope);
+  } else if (deterministic) {
+    const full = deterministic.discovery;
+    onStatus(`Parsed ${deterministic.parser} schema deterministically (${full.entities.length} entities)`);
+    discoveryModel = `deterministic:${deterministic.parser}`;
+    options.onDiscovery?.(full);
+
+    const flagScope = resolveScopeFromFlags(full, { domains: options.domains, entities: options.entities });
+    if (flagScope) {
+      scope = flagScope.selection;
+      if (flagScope.unknown.length > 0) {
+        scopeWarnings = flagScope.unknown.map(
+          (name) => `Unknown ${scope.mode === 'domains' ? 'domain' : 'entity'}: "${name}"`,
+        );
+      }
+    } else if (options.selectScope) {
+      scope = await options.selectScope(full);
+    }
+    discovery = applyScope(full, scope);
+  } else if (options.selectScope && !hasFlags) {
     onStatus('Outlining your data model...');
     const outlineResult = await discoverDomainOutline(
       { ...agentOptions, spinnerMessage: 'Outlining your data model...' },
@@ -120,6 +189,7 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     // the ancestor entities up to the organization root, so the proposed FGA
     // hierarchy stays connected from the tenant down to the domain.
     discovery = deepResult.discovery;
+    if (discovery) options.onDiscovery?.(discovery);
   } else {
     onStatus('Discovering your data model...');
     const discoveryResult = await discoverDataModel(
@@ -135,6 +205,7 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     if (full.entities.length === 0) {
       return noModel(discoveryModel, full, scope, full.summary || 'No persistent entities were found in this project');
     }
+    options.onDiscovery?.(full);
 
     const flagScope = resolveScopeFromFlags(full, { domains: options.domains, entities: options.entities });
     if (flagScope) {
@@ -155,6 +226,7 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
       dataModel: discovery,
       scope,
       scopeWarnings,
+      modelArtifact,
       analysis: null,
       durationMs: Date.now() - startTime,
       skipped: true,
@@ -180,6 +252,7 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     dataModel: discovery,
     scope,
     scopeWarnings,
+    modelArtifact,
     analysis,
     model: analysisResult.model,
     usage: tally(),
