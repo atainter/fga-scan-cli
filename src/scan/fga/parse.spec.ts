@@ -2,18 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseFgaAgentOutput } from './parse.js';
 
 const validAnalysis = {
-  summary: 'A multi-tenant project tracker.',
-  dataModel: {
-    source: 'prisma',
-    entities: [
-      {
-        name: 'Organization',
-        filePath: 'prisma/schema.prisma',
-        description: 'Tenant boundary',
-        relationships: [{ to: 'Project', kind: 'hasMany', via: 'organizationId' }],
-      },
-    ],
-  },
+  summary: 'A two-level hierarchy fits this app.',
   proposal: {
     resourceTypes: [
       {
@@ -60,7 +49,7 @@ describe('parseFgaAgentOutput', () => {
     const analysis = parseFgaAgentOutput(text);
 
     expect(analysis).not.toBeNull();
-    expect(analysis!.summary).toBe('A multi-tenant project tracker.');
+    expect(analysis!.summary).toBe('A two-level hierarchy fits this app.');
     expect(analysis!.proposal.resourceTypes).toHaveLength(2);
     expect(analysis!.proposal.resourceTypes[1].parent).toBe('organization');
     expect(analysis!.proposal.roles[0].cascades).toBe(true);
@@ -79,7 +68,7 @@ describe('parseFgaAgentOutput', () => {
     const analysis = parseFgaAgentOutput(JSON.stringify(validAnalysis));
 
     expect(analysis).not.toBeNull();
-    expect(analysis!.dataModel.source).toBe('prisma');
+    expect(analysis!.proposal.roles).toHaveLength(1);
   });
 
   it('returns null for unparseable output', () => {

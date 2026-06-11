@@ -11,16 +11,20 @@ import { getInteractionMode } from '../utils/interaction-mode.js';
 import {
   runFgaScan,
   formatFgaReport,
+  formatDiscovery,
   formatFgaReportAsJson,
   generateFgaReportHtml,
   serveFgaReport,
 } from '../scan/fga/index.js';
+import { promptForScope } from '../scan/data-model/picker.js';
 
 export interface ScanFgaArgs {
   installDir?: string;
   json?: boolean;
   open?: boolean;
   out?: string;
+  domains?: string;
+  entities?: string;
   direct?: boolean;
   debug?: boolean;
 }
@@ -46,7 +50,24 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
       json,
       direct: argv.direct,
       debug: argv.debug,
+      domains: argv.domains,
+      entities: argv.entities,
       onStatus: (message) => spinner?.message(message),
+      // Interactive scoping between discovery and analysis — human mode only;
+      // headless runs scope via --domains/--entities or analyze everything.
+      selectScope:
+        interactive && !json
+          ? async (discovery) => {
+              spinner?.stop('Data model discovered');
+              formatDiscovery(discovery);
+              const selection = await promptForScope(discovery);
+              if (selection === null) {
+                exitWithCode(ExitCode.CANCELLED);
+              }
+              spinner?.start('Analyzing FGA fit...');
+              return selection;
+            }
+          : undefined,
     });
     spinner?.stop('Scan complete');
 

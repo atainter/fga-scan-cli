@@ -539,6 +539,14 @@ async function runCli(): Promise<void> {
               type: 'string',
               description: 'Write the HTML report to a file',
             },
+            domains: {
+              type: 'string',
+              description: 'Comma-separated domain names to scope the scan to (skips the interactive picker)',
+            },
+            entities: {
+              type: 'string',
+              description: 'Comma-separated entity names to scope the scan to (skips the interactive picker)',
+            },
             direct: {
               type: 'boolean',
               default: false,

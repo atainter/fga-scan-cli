@@ -1,4 +1,5 @@
 import { renderHierarchyTree } from './output.js';
+import type { DataModelDiscovery } from '../data-model/types.js';
 import type { FgaRoleProposal, FgaScanReport } from './types.js';
 
 const FGA_DOCS_URL = 'https://workos.com/docs/fga';
@@ -20,6 +21,39 @@ function mermaidId(type: string): string {
 /** Mermaid label text — strip characters that break inline labels */
 function mermaidLabel(value: string): string {
   return value.replace(/["[\]{}|]/g, '');
+}
+
+const ER_CARDINALITY: Record<string, string> = {
+  hasMany: '||--o{',
+  hasOne: '||--||',
+  belongsTo: '}o--||',
+  manyToMany: '}o--o{',
+};
+
+/**
+ * Build a Mermaid ER diagram of the scoped data model. Inverse pairs
+ * (A hasMany B / B belongsTo A) are deduplicated to one edge.
+ */
+export function buildErDiagramMermaid(dataModel: DataModelDiscovery): string {
+  if (dataModel.entities.length === 0) return '';
+
+  const lines = ['erDiagram'];
+  for (const entity of dataModel.entities) {
+    lines.push(`  ${mermaidId(entity.name)}`);
+  }
+
+  const seenPairs = new Set<string>();
+  for (const entity of dataModel.entities) {
+    for (const rel of entity.relationships) {
+      const pairKey = [entity.name, rel.to].sort().join('::');
+      if (seenPairs.has(pairKey)) continue;
+      seenPairs.add(pairKey);
+      const cardinality = ER_CARDINALITY[rel.kind] ?? '||--o{';
+      const label = mermaidLabel(rel.via ?? rel.kind);
+      lines.push(`  ${mermaidId(entity.name)} ${cardinality} ${mermaidId(rel.to)} : "${label}"`);
+    }
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -60,6 +94,22 @@ export function generateFgaReportHtml(report: FgaScanReport): string {
   const summarySection = analysis?.summary
     ? `<section><h2>Summary</h2><p>${escapeHtml(analysis.summary)}</p></section>`
     : '';
+
+  const erMermaid = report.dataModel ? buildErDiagramMermaid(report.dataModel) : '';
+  const scopeLabel =
+    report.scope.mode === 'all'
+      ? 'whole application'
+      : `${report.scope.mode}: ${((report.scope.mode === 'domains' ? report.scope.domains : report.scope.entities) ?? []).join(', ')}`;
+  const dataModelSection =
+    report.dataModel && erMermaid
+      ? `<section>
+  <h2>Scoped Data Model</h2>
+  <p class="hint">${report.dataModel.entities.length} entities in scope (${escapeHtml(scopeLabel)})${
+    report.dataModel.source ? ` · source: <code>${escapeHtml(report.dataModel.source)}</code>` : ''
+  }</p>
+  <div class="card diagram"><pre class="mermaid">${escapeHtml(erMermaid)}</pre></div>
+</section>`
+      : '';
 
   const mermaid = buildHierarchyMermaid(report);
   const fallbackTree = analysis ? renderHierarchyTree(analysis.proposal.resourceTypes).join('\n') : '';
@@ -183,6 +233,7 @@ export function generateFgaReportHtml(report: FgaScanReport): string {
   </header>
   ${emptyState}
   ${summarySection}
+  ${dataModelSection}
   ${diagramSection}
   ${resourceTypesSection}
   ${rolesSection}

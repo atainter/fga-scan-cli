@@ -1,6 +1,6 @@
-import { initializeAgent, runAgent } from '../../lib/agent-interface.js';
-import { createInstallerEventEmitter } from '../../lib/events.js';
-import type { InstallerOptions } from '../../utils/types.js';
+import { initializeAgent, runAgent } from '../lib/agent-interface.js';
+import { createInstallerEventEmitter } from '../lib/events.js';
+import type { InstallerOptions } from '../utils/types.js';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 /**
@@ -14,6 +14,8 @@ export interface ScanAgentOptions {
   direct?: boolean;
   debug?: boolean;
   onStatus?: (message: string) => void;
+  /** Shown while the agent works; phases pass their own (e.g. "Discovering data model...") */
+  spinnerMessage?: string;
 }
 
 export interface ScanAgentResult {
@@ -83,8 +85,8 @@ export async function runScanAgent(options: ScanAgentOptions, prompt: string): P
     prompt,
     installerOptions,
     {
-      spinnerMessage: 'Analyzing your data model for FGA...',
-      errorMessage: 'FGA scan failed',
+      spinnerMessage: options.spinnerMessage ?? 'Scanning your project...',
+      errorMessage: 'Scan failed',
     },
     emitter,
     undefined,

@@ -1,17 +1,4 @@
-export interface FgaEntityRelationship {
-  /** Target entity name */
-  to: string;
-  kind: 'belongsTo' | 'hasMany' | 'hasOne' | 'manyToMany';
-  /** Join table / foreign key the relationship was inferred from */
-  via?: string;
-}
-
-export interface FgaDetectedEntity {
-  name: string;
-  filePath?: string;
-  description?: string;
-  relationships: FgaEntityRelationship[];
-}
+import type { DataModelDiscovery, ScopeSelection } from '../data-model/types.js';
 
 export interface FgaResourceTypeProposal {
   /** Identifier-style resource type, e.g. `organization`, `project` */
@@ -50,14 +37,12 @@ export interface FgaRecommendation {
   priority: 'high' | 'medium' | 'low';
 }
 
-/** Structured output produced by the scan agent */
+/**
+ * Structured output of the phase-2 analysis agent. The data model itself is
+ * NOT part of the analysis — phase 1 (discovery + scoping) owns it.
+ */
 export interface FgaAnalysis {
   summary: string;
-  dataModel: {
-    /** Primary schema source, e.g. 'prisma', 'drizzle', 'sql', 'rails' */
-    source: string | null;
-    entities: FgaDetectedEntity[];
-  };
   proposal: {
     resourceTypes: FgaResourceTypeProposal[];
     roles: FgaRoleProposal[];
@@ -87,7 +72,13 @@ export interface FgaScanReport {
     framework: string | null;
   };
   dataModelHints: DataModelHints;
-  /** Null when the agent output could not be parsed or the scan was skipped */
+  /** Phase-1 result, narrowed to the user's scope. Null when discovery failed. */
+  dataModel: DataModelDiscovery | null;
+  /** How the user scoped the scan (whole app, domains, or entities) */
+  scope: ScopeSelection;
+  /** Names from --domains/--entities flags that didn't match the discovery */
+  scopeWarnings?: string[];
+  /** Phase-2 result. Null when the analysis was skipped or unparseable. */
   analysis: FgaAnalysis | null;
   model: string;
   durationMs: number;
@@ -102,9 +93,19 @@ export interface FgaScanOptions {
   open?: boolean;
   /** Write the HTML report to this path */
   out?: string;
+  /** Comma-separated domain names to scope the scan to (skips the picker) */
+  domains?: string;
+  /** Comma-separated entity names to scope the scan to (skips the picker) */
+  entities?: string;
   /** Bypass the LLM gateway and use ANTHROPIC_API_KEY directly */
   direct?: boolean;
   debug?: boolean;
   /** Status callback for progress rendering (spinner etc.) */
   onStatus?: (message: string) => void;
+  /**
+   * Interactive scoping hook, called between discovery and analysis when no
+   * --domains/--entities flags are set. Omit for headless runs (scope: all).
+   * Implementations should exit the process themselves on user cancel.
+   */
+  selectScope?: (discovery: DataModelDiscovery) => Promise<ScopeSelection>;
 }

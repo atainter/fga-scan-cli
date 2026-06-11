@@ -1,4 +1,5 @@
 import Chalk from 'chalk';
+import type { DataModelDiscovery } from '../data-model/types.js';
 import type { FgaResourceTypeProposal, FgaScanReport } from './types.js';
 
 /**
@@ -27,6 +28,29 @@ export function renderHierarchyTree(resourceTypes: FgaResourceTypeProposal[]): s
   return lines;
 }
 
+/**
+ * Terminal summary of the phase-1 discovery, shown before the scoping picker
+ * so the user knows what they're narrowing.
+ */
+export function formatDiscovery(discovery: DataModelDiscovery): void {
+  console.log('');
+  console.log(Chalk.cyan('Discovered Data Model'));
+  console.log(Chalk.dim('━'.repeat(70)));
+  if (discovery.summary) {
+    console.log('');
+    console.log(`   ${discovery.summary}`);
+  }
+  console.log('');
+  for (const domain of discovery.domains) {
+    console.log(`   ${Chalk.bold(domain.name)}${domain.description ? Chalk.dim(` — ${domain.description}`) : ''}`);
+    for (const entityName of domain.entities) {
+      const entity = discovery.entities.find((e) => e.name === entityName);
+      console.log(`     • ${entityName}${entity ? Chalk.dim(`  ${entity.filePath}`) : ''}`);
+    }
+  }
+  console.log('');
+}
+
 export function formatFgaReport(report: FgaScanReport): void {
   console.log('');
   console.log(Chalk.cyan('WorkOS FGA Scan'));
@@ -41,8 +65,19 @@ export function formatFgaReport(report: FgaScanReport): void {
   if (report.project.framework) {
     console.log(`   Framework:        ${report.project.framework}`);
   }
-  if (report.dataModelHints.sources.length > 0) {
-    console.log(`   Schema sources:   ${report.dataModelHints.sources.map((s) => s.kind).join(', ')}`);
+  if (report.dataModel?.source) {
+    console.log(`   Schema source:    ${report.dataModel.source}`);
+  }
+  if (report.scope.mode !== 'all') {
+    const scopeList = report.scope.mode === 'domains' ? report.scope.domains : report.scope.entities;
+    console.log(`   Scope:            ${report.scope.mode}: ${(scopeList ?? []).join(', ')}`);
+  }
+  if (report.dataModel) {
+    console.log(`   Entities in scope: ${report.dataModel.entities.length}`);
+  }
+
+  for (const warning of report.scopeWarnings ?? []) {
+    console.log(`   ${Chalk.yellow('!')} ${warning}`);
   }
 
   const analysis = report.analysis;

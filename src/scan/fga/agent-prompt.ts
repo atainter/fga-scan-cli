@@ -1,11 +1,8 @@
-import type { LanguageInfo, FrameworkInfo } from '../../doctor/types.js';
-import type { DataModelHints } from './types.js';
+import type { DataModelDiscovery } from '../data-model/types.js';
 
 export interface FgaScanPromptContext {
-  installDir: string;
-  language: LanguageInfo;
-  framework: FrameworkInfo;
-  dataModelHints: DataModelHints;
+  /** Phase-1 discovery, already narrowed to the user's selected scope */
+  dataModel: DataModelDiscovery;
 }
 
 const FGA_DOCS_URL = 'https://workos.com/docs/fga';
@@ -44,63 +41,41 @@ Good FGA models:
 
 Docs: ${FGA_DOCS_URL}`;
 
-function formatHints(hints: DataModelHints): string {
-  if (hints.sources.length === 0) {
-    return 'No schema files were pre-detected. Explore the project to find where persistent entities are defined.';
-  }
-  return hints.sources
-    .map((s) => `- ${s.kind}:\n${s.files.map((f) => `  - ${f}`).join('\n')}`)
-    .join('\n');
-}
-
 export function buildFgaScanPrompt(context: FgaScanPromptContext): string {
-  const { language, framework, dataModelHints } = context;
+  const { dataModel } = context;
 
-  const projectContext = [
-    `- Language: ${language.name}`,
-    framework.name ? `- Framework: ${framework.name} ${framework.version ?? ''}` : null,
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  return `You are a WorkOS FGA modeling analyst. Explore this project's data model and propose how to model it with WorkOS Fine-Grained Authorization.
-
-## Project Context
-${projectContext}
+  return `You are a WorkOS FGA modeling analyst. A discovery pass already inventoried this project's data model, and the user scoped the analysis to the entities below. Propose how to model THESE entities with WorkOS Fine-Grained Authorization.
 
 ${FGA_CONCEPTS}
 
-## Pre-detected Schema Files
-${formatHints(dataModelHints)}
+## Scoped Data Model (discovered in phase 1, selected by the user)
+${JSON.stringify(
+  {
+    source: dataModel.source,
+    summary: dataModel.summary,
+    domains: dataModel.domains,
+    entities: dataModel.entities,
+  },
+  null,
+  2,
+)}
 
 ## Your Task
-1. Read the schema/model files above (and explore further with Glob/Grep if needed) to understand
-   the persistent entities and their relationships. Look for: the multi-tenancy boundary
-   (organizations/teams/accounts), containment relationships (workspace → project → resource),
-   membership/role tables, and any existing authorization code (role checks, permission middleware).
-2. Identify which entities should become FGA resource types and how they nest.
+1. Use the scoped data model above as your ground truth. You MAY re-read the cited files
+   (and explore with Glob/Grep) to understand fields, membership tables, and any existing
+   authorization code — but do not expand the proposal beyond the scoped entities.
+2. Decide which scoped entities should become FGA resource types and how they nest.
 3. Propose roles scoped to those resource types, with permissions and cascade behavior.
 4. Produce example access checks that demonstrate how cascading inheritance answers real
    authorization questions in this application.
 
-Report progress with [STATUS] prefixed lines as you work (e.g. "[STATUS] Reading Prisma schema").
+Report progress with [STATUS] prefixed lines as you work (e.g. "[STATUS] Reading membership model").
 
 ## Output Format
 End with your analysis as a JSON object wrapped in a markdown code block:
 \`\`\`json
 {
-  "summary": "One paragraph: what the app's data model looks like and the shape of the proposed FGA model",
-  "dataModel": {
-    "source": "prisma | drizzle | typeorm | sql | rails | django | other",
-    "entities": [
-      {
-        "name": "EntityName",
-        "filePath": "path/to/definition",
-        "description": "What this entity represents",
-        "relationships": [{ "to": "OtherEntity", "kind": "belongsTo | hasMany | hasOne | manyToMany", "via": "foreign key or join table" }]
-      }
-    ]
-  },
+  "summary": "One paragraph: the shape of the proposed FGA model and why it fits this data model",
   "proposal": {
     "resourceTypes": [
       {
@@ -139,15 +114,14 @@ End with your analysis as a JSON object wrapped in a markdown code block:
 \`\`\`
 
 ## Rules
-- Every resourceType MUST list mappedEntities that actually exist in the data model you read,
-  and every entity MUST cite the filePath where you found it. No evidence — drop it.
+- Every resourceType's mappedEntities MUST name entities from the scoped data model above.
+  No evidence — drop it.
 - Every "parent" value MUST be the "type" of another resourceType in your proposal (or null).
-- Do NOT model every table as a resource type. Only entities that gate access belong in the
+- Do NOT model every entity as a resource type. Only entities that gate access belong in the
   hierarchy; aim for 2–4 levels.
-- Do NOT invent entities, relationships, or existing authorization behavior you did not observe
-  in the code.
-- If the project has no discernible data model, return empty arrays and explain why in the
-  summary — do not fabricate a proposal.
+- Do NOT invent entities, relationships, or existing authorization behavior you did not observe.
+- If the scoped model has no plausible access-gating entities, return empty arrays and explain
+  why in the summary — do not fabricate a proposal.
 - Permissions use resource_type:action naming.
 - You have read-only access (Read, Glob, Grep). Do not attempt to modify files or run commands.`;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateFgaReportHtml, buildHierarchyMermaid, escapeHtml } from './html-report.js';
+import { generateFgaReportHtml, buildHierarchyMermaid, buildErDiagramMermaid, escapeHtml } from './html-report.js';
 import type { FgaScanReport } from './types.js';
 
 function report(overrides?: Partial<FgaScanReport>): FgaScanReport {
@@ -9,12 +9,26 @@ function report(overrides?: Partial<FgaScanReport>): FgaScanReport {
     target: 'fga',
     project: { path: '/tmp/app', language: 'JavaScript/TypeScript', framework: 'Next.js' },
     dataModelHints: { sources: [{ kind: 'prisma', files: ['prisma/schema.prisma'] }] },
+    dataModel: {
+      source: 'prisma',
+      summary: 'Multi-tenant tracker.',
+      entities: [
+        {
+          name: 'Organization',
+          filePath: 'prisma/schema.prisma',
+          relationships: [{ to: 'Project', kind: 'hasMany', via: 'organizationId' }],
+        },
+        {
+          name: 'Project',
+          filePath: 'prisma/schema.prisma',
+          relationships: [{ to: 'Organization', kind: 'belongsTo', via: 'organizationId' }],
+        },
+      ],
+      domains: [{ name: 'Projects', entities: ['Organization', 'Project'] }],
+    },
+    scope: { mode: 'all' },
     analysis: {
       summary: 'A multi-tenant tracker.',
-      dataModel: {
-        source: 'prisma',
-        entities: [{ name: 'Organization', filePath: 'prisma/schema.prisma', relationships: [] }],
-      },
       proposal: {
         resourceTypes: [
           {
@@ -32,9 +46,7 @@ function report(overrides?: Partial<FgaScanReport>): FgaScanReport {
             rationale: 'Unit of collaboration',
           },
         ],
-        roles: [
-          { name: 'admin', resourceType: 'organization', permissions: ['project:create'], cascades: true },
-        ],
+        roles: [{ name: 'admin', resourceType: 'organization', permissions: ['project:create'], cascades: true }],
         exampleChecks: [
           {
             description: 'Org admin edits project',
@@ -86,18 +98,42 @@ describe('buildHierarchyMermaid', () => {
   });
 });
 
+describe('buildErDiagramMermaid', () => {
+  it('renders entities with deduplicated relationship edges', () => {
+    const mermaid = buildErDiagramMermaid(report().dataModel!);
+
+    expect(mermaid).toContain('erDiagram');
+    expect(mermaid).toContain('Organization ||--o{ Project : "organizationId"');
+    // Inverse belongsTo edge deduplicated — only one Organization/Project edge
+    expect(mermaid.match(/Organization.*Project|Project.*Organization/g)).toHaveLength(1);
+  });
+
+  it('returns empty string for an empty model', () => {
+    const empty = { source: null, summary: '', entities: [], domains: [] };
+    expect(buildErDiagramMermaid(empty)).toBe('');
+  });
+});
+
 describe('generateFgaReportHtml', () => {
   it('includes all report sections', () => {
     const html = generateFgaReportHtml(report());
 
     expect(html).toContain('FGA Modeling Proposal');
     expect(html).toContain('A multi-tenant tracker.');
+    expect(html).toContain('Scoped Data Model');
+    expect(html).toContain('erDiagram');
     expect(html).toContain('Proposed Resource Hierarchy');
     expect(html).toContain('Roles &amp; Permissions');
     expect(html).toContain('Example Access Checks');
     expect(html).toContain('Keep it shallow');
     expect(html).toContain('Membership table is ambiguous');
     expect(html).toContain('https://workos.com/docs/fga');
+  });
+
+  it('shows the narrowed scope in the data model section', () => {
+    const html = generateFgaReportHtml(report({ scope: { mode: 'domains', domains: ['Projects'] } }));
+
+    expect(html).toContain('domains: Projects');
   });
 
   it('escapes attacker-controlled values from the scanned project', () => {
@@ -110,7 +146,9 @@ describe('generateFgaReportHtml', () => {
   });
 
   it('renders an empty state when there is no analysis', () => {
-    const html = generateFgaReportHtml(report({ analysis: null, skipped: true, skipReason: 'Nothing parseable' }));
+    const html = generateFgaReportHtml(
+      report({ analysis: null, dataModel: null, skipped: true, skipReason: 'Nothing parseable' }),
+    );
 
     expect(html).toContain('Nothing parseable');
     expect(html).not.toContain('Proposed Resource Hierarchy');

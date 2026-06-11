@@ -1,14 +1,12 @@
+import { extractJsonCandidates, parseFirstJsonObject } from '../json-extract.js';
 import type {
   FgaAnalysis,
-  FgaDetectedEntity,
-  FgaEntityRelationship,
   FgaExampleCheck,
   FgaRecommendation,
   FgaResourceTypeProposal,
   FgaRoleProposal,
 } from './types.js';
 
-const RELATIONSHIP_KINDS = new Set(['belongsTo', 'hasMany', 'hasOne', 'manyToMany']);
 const PRIORITIES = new Set(['high', 'medium', 'low']);
 
 function asString(value: unknown, fallback = ''): string {
@@ -17,27 +15,6 @@ function asString(value: unknown, fallback = ''): string {
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-}
-
-function normalizeEntity(raw: Record<string, unknown>): FgaDetectedEntity {
-  const relationships: FgaEntityRelationship[] = Array.isArray(raw.relationships)
-    ? (raw.relationships as Record<string, unknown>[])
-        .filter((r) => r && typeof r === 'object' && typeof r.to === 'string')
-        .map((r) => ({
-          to: r.to as string,
-          kind: RELATIONSHIP_KINDS.has(r.kind as string)
-            ? (r.kind as FgaEntityRelationship['kind'])
-            : 'belongsTo',
-          via: typeof r.via === 'string' ? r.via : undefined,
-        }))
-    : [];
-
-  return {
-    name: asString(raw.name),
-    filePath: typeof raw.filePath === 'string' ? raw.filePath : undefined,
-    description: typeof raw.description === 'string' ? raw.description : undefined,
-    relationships,
-  };
 }
 
 function normalizeResourceType(raw: Record<string, unknown>): FgaResourceTypeProposal {
@@ -79,13 +56,15 @@ function normalizeRecommendation(raw: Record<string, unknown>): FgaRecommendatio
   };
 }
 
-function normalizeAnalysis(parsed: Record<string, unknown>): FgaAnalysis {
-  const dataModelRaw = (parsed.dataModel ?? {}) as Record<string, unknown>;
-  const proposalRaw = (parsed.proposal ?? {}) as Record<string, unknown>;
+/**
+ * Parse the analysis agent's final output into a normalized FgaAnalysis.
+ * Returns null when nothing parseable is found.
+ */
+export function parseFgaAgentOutput(text: string): FgaAnalysis | null {
+  const parsed = parseFirstJsonObject(extractJsonCandidates(text, 'proposal'));
+  if (!parsed) return null;
 
-  const entities = Array.isArray(dataModelRaw.entities)
-    ? (dataModelRaw.entities as Record<string, unknown>[]).map(normalizeEntity).filter((e) => e.name)
-    : [];
+  const proposalRaw = (parsed.proposal ?? {}) as Record<string, unknown>;
 
   const resourceTypes = Array.isArray(proposalRaw.resourceTypes)
     ? (proposalRaw.resourceTypes as Record<string, unknown>[]).map(normalizeResourceType).filter((r) => r.type)
@@ -118,44 +97,8 @@ function normalizeAnalysis(parsed: Record<string, unknown>): FgaAnalysis {
 
   return {
     summary: asString(parsed.summary),
-    dataModel: {
-      source: typeof dataModelRaw.source === 'string' ? dataModelRaw.source : null,
-      entities,
-    },
     proposal: { resourceTypes, roles, exampleChecks },
     recommendations,
     warnings,
   };
-}
-
-/**
- * Parse the agent's final output into a normalized FgaAnalysis.
- * The agent emits progress text before the final fenced JSON block, so we
- * take the LAST fenced block. Returns null when nothing parseable is found.
- */
-export function parseFgaAgentOutput(text: string): FgaAnalysis | null {
-  const fencedBlocks = [...text.matchAll(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/g)];
-  const candidates: string[] = [];
-
-  if (fencedBlocks.length > 0) {
-    candidates.push(fencedBlocks[fencedBlocks.length - 1][1]);
-  }
-  // Fallback: a bare JSON object containing "proposal" somewhere in the text
-  const bareMatch = text.match(/\{[\s\S]*"proposal"[\s\S]*\}/);
-  if (bareMatch) {
-    candidates.push(bareMatch[0]);
-  }
-
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate.trim());
-      if (parsed && typeof parsed === 'object') {
-        return normalizeAnalysis(parsed as Record<string, unknown>);
-      }
-    } catch {
-      // try next candidate
-    }
-  }
-
-  return null;
 }

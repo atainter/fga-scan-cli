@@ -9,9 +9,14 @@ const mockServeFgaReport = vi.fn();
 vi.mock('../scan/fga/index.js', () => ({
   runFgaScan: (...args: unknown[]) => mockRunFgaScan(...args),
   formatFgaReport: vi.fn(),
+  formatDiscovery: vi.fn(),
   formatFgaReportAsJson: (report: unknown) => JSON.stringify(report, null, 2),
   generateFgaReportHtml: () => '<html>report</html>',
   serveFgaReport: (...args: unknown[]) => mockServeFgaReport(...args),
+}));
+
+vi.mock('../scan/data-model/picker.js', () => ({
+  promptForScope: vi.fn(),
 }));
 
 const mockHasCredentials = vi.fn();
@@ -47,9 +52,10 @@ function report(overrides?: Partial<FgaScanReport>): FgaScanReport {
     target: 'fga',
     project: { path: '/tmp/app', language: 'JavaScript/TypeScript', framework: null },
     dataModelHints: { sources: [] },
+    dataModel: { source: 'prisma', summary: 'ok', entities: [], domains: [] },
+    scope: { mode: 'all' },
     analysis: {
       summary: 'ok',
-      dataModel: { source: 'prisma', entities: [] },
       proposal: { resourceTypes: [], roles: [], exampleChecks: [] },
       recommendations: [],
       warnings: [],
