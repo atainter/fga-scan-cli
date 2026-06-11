@@ -1,4 +1,5 @@
 import type { DataModelDiscovery, ScopeSelection } from '../data-model/types.js';
+import type { ScanUsage } from '../agent.js';
 
 export interface FgaResourceTypeProposal {
   /** Identifier-style resource type, e.g. `organization`, `project` */
@@ -65,6 +66,21 @@ export interface FgaAnalysis {
   warnings: string[];
 }
 
+/** Token/cost usage for one agent pass of the scan. */
+export interface ScanPhaseUsage {
+  /** 'outline' | 'discovery' | 'analysis' */
+  phase: string;
+  model: string;
+  durationMs: number;
+  usage: ScanUsage;
+}
+
+/** Per-phase breakdown plus the summed total for the whole scan. */
+export interface FgaScanUsage {
+  phases: ScanPhaseUsage[];
+  total: ScanUsage;
+}
+
 export interface DataModelSourceHint {
   /** e.g. 'prisma', 'drizzle', 'typeorm', 'sql-migrations', 'rails', 'django' */
   kind: string;
@@ -94,6 +110,8 @@ export interface FgaScanReport {
   /** Phase-2 result. Null when the analysis was skipped or unparseable. */
   analysis: FgaAnalysis | null;
   model: string;
+  /** Token/cost usage per agent pass and in total. */
+  usage: FgaScanUsage;
   durationMs: number;
   skipped?: boolean;
   skipReason?: string;
@@ -112,9 +130,14 @@ export interface FgaScanOptions {
   entities?: string;
   /** Bypass the LLM gateway and use ANTHROPIC_API_KEY directly */
   direct?: boolean;
+  /** Also generate integration code snippets (slower, opt-in follow-up pass) */
+  code?: boolean;
   debug?: boolean;
   /** Status callback for progress rendering (spinner etc.) */
   onStatus?: (message: string) => void;
+  /** Called as each agent pass completes, with its token/cost usage, so the
+   *  caller can surface running cost in its progress UI. */
+  onPhase?: (phase: ScanPhaseUsage) => void;
   /**
    * Interactive scoping hook, called between discovery and analysis when no
    * --domains/--entities flags are set. Omit for headless runs (scope: all).

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFgaAgentOutput } from './parse.js';
+import { parseFgaAgentOutput, parseIntegrationSnippets } from './parse.js';
 
 const validAnalysis = {
   summary: 'A two-level hierarchy fits this app.',
@@ -83,13 +83,32 @@ describe('parseFgaAgentOutput', () => {
     expect(parseFgaAgentOutput('I could not analyze this project, sorry.')).toBeNull();
   });
 
-  it('nulls out dangling parents and records a warning', () => {
+  it('re-roots dangling parents under organization and records a warning', () => {
     const broken = structuredClone(validAnalysis);
     broken.proposal.resourceTypes[1].parent = 'workspace'; // not a proposed type
     const analysis = parseFgaAgentOutput(`\`\`\`json\n${JSON.stringify(broken)}\n\`\`\``);
 
-    expect(analysis!.proposal.resourceTypes[1].parent).toBeNull();
+    // project's bad parent is dropped, then re-attached to the organization root.
+    expect(analysis!.proposal.resourceTypes.find((r) => r.type === 'project')!.parent).toBe('organization');
     expect(analysis!.warnings.some((w) => w.includes('unknown parent'))).toBe(true);
+  });
+
+  it('guarantees an organization root and attaches stray roots to it', () => {
+    const noOrg = structuredClone(validAnalysis) as Record<string, any>;
+    // A proposal that forgot the tenant root: a single `project` root, no organization.
+    noOrg.proposal.resourceTypes = [
+      { type: 'project', displayName: 'Project', parent: null, mappedEntities: ['Project'], rationale: 'root' },
+      { type: 'task', displayName: 'Task', parent: 'project', mappedEntities: ['Task'], rationale: 'child' },
+    ];
+    const analysis = parseFgaAgentOutput(`\`\`\`json\n${JSON.stringify(noOrg)}\n\`\`\``);
+
+    const org = analysis!.proposal.resourceTypes.find((r) => r.type === 'organization');
+    expect(org).toBeDefined();
+    expect(org!.parent).toBeNull();
+    // The former root now descends from organization; the only root is organization.
+    expect(analysis!.proposal.resourceTypes.find((r) => r.type === 'project')!.parent).toBe('organization');
+    expect(analysis!.proposal.resourceTypes.filter((r) => r.parent === null)).toHaveLength(1);
+    expect(analysis!.warnings.some((w) => w.includes('organization'))).toBe(true);
   });
 
   it('drops invalid entries instead of failing the parse', () => {
@@ -130,5 +149,25 @@ describe('parseFgaAgentOutput', () => {
     const analysis = parseFgaAgentOutput(`\`\`\`json\n${JSON.stringify(messy)}\n\`\`\``);
 
     expect(analysis!.recommendations[0].priority).toBe('medium');
+  });
+});
+
+describe('parseIntegrationSnippets', () => {
+  it('parses the follow-up snippet pass output, dropping entries without code', () => {
+    const text = `[STATUS] done\n\`\`\`json\n${JSON.stringify({
+      integrationSnippets: [
+        { title: 'Authorize route', language: 'javascript', appliesTo: 'GET /p/:id', code: 'check()' },
+        { title: 'no code' },
+      ],
+    })}\n\`\`\``;
+    const snippets = parseIntegrationSnippets(text);
+
+    expect(snippets).toHaveLength(1);
+    expect(snippets[0].appliesTo).toBe('GET /p/:id');
+    expect(snippets[0].language).toBe('javascript');
+  });
+
+  it('returns [] when nothing parseable is present', () => {
+    expect(parseIntegrationSnippets('no json here')).toEqual([]);
   });
 });

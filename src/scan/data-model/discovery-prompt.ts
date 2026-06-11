@@ -39,8 +39,11 @@ export function buildDiscoveryPrompt(context: DiscoveryPromptContext): string {
 
   const focusBlock =
     focusEntities && focusEntities.length > 0
-      ? `\n## Focus\nThe user narrowed the scan to one domain. Inventory ONLY these entities and the
-relationships between them (and to their immediate parents). Do NOT inventory the rest of the model:
+      ? `\n## Focus\nThe user narrowed the scan to one domain. Inventory these entities, their relationships, AND
+every ancestor entity on the path UP to the tenant root (the organization / workspace / account /
+team table that owns everything). Those intermediate ancestors are needed so the FGA hierarchy
+stays connected from the organization down to the domain — include them even though they sit
+outside the chosen domain. Do NOT inventory unrelated entities from other domains:
 ${focusEntities.map((e) => `- ${e}`).join('\n')}\n`
       : '';
 

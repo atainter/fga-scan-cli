@@ -30,12 +30,14 @@ describe('buildDiscoveryPrompt', () => {
     expect(prompt).not.toContain('## Focus');
   });
 
-  it('narrows to the focus entities when focusEntities is set', () => {
+  it('narrows to the focus entities but keeps ancestors up to the tenant', () => {
     const prompt = buildDiscoveryPrompt({ ...baseContext, focusEntities: ['Project', 'Task'] });
 
     expect(prompt).toContain('## Focus');
     expect(prompt).toContain('- Project');
     expect(prompt).toContain('- Task');
-    expect(prompt).toContain('Do NOT inventory the rest of the model');
+    // Ancestors up to the tenant root are included for hierarchy context.
+    expect(prompt).toContain('ancestor entity on the path UP to the tenant root');
+    expect(prompt).toContain('Do NOT inventory unrelated entities from other domains');
   });
 });

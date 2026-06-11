@@ -1,6 +1,34 @@
 import Chalk from 'chalk';
 import type { DataModelDiscovery } from '../data-model/types.js';
-import type { FgaResourceTypeProposal, FgaScanReport } from './types.js';
+import type { FgaIntegrationSnippet, FgaResourceTypeProposal, FgaScanReport, ScanPhaseUsage } from './types.js';
+
+const fmtCount = (n: number): string => n.toLocaleString('en-US');
+const fmtCost = (n: number): string => `$${n.toFixed(n > 0 && n < 0.01 ? 4 : 2)}`;
+
+/**
+ * Render the "Integration Code" section. Reused by formatFgaReport and printed
+ * standalone after the opt-in code follow-up. No-ops when there are no snippets.
+ */
+export function formatIntegrationSnippets(snippets: FgaIntegrationSnippet[]): void {
+  if (snippets.length === 0) return;
+  console.log('');
+  console.log('Integration Code');
+  for (const snippet of snippets) {
+    const where = snippet.appliesTo ? Chalk.dim(` — ${snippet.appliesTo}`) : '';
+    console.log(`   ${Chalk.bold(snippet.title)}${where}`);
+    for (const line of snippet.code.split('\n')) {
+      console.log(`     ${Chalk.dim(line)}`);
+    }
+  }
+}
+
+/** One-line token/cost summary for a pass (or the total). */
+export function formatUsageLine(u: ScanPhaseUsage['usage']): string {
+  const parts = [`${fmtCount(u.inputTokens)} in`, `${fmtCount(u.outputTokens)} out`];
+  if (u.cacheReadTokens > 0) parts.push(`${fmtCount(u.cacheReadTokens)} cached`);
+  if (u.costUsd > 0) parts.push(fmtCost(u.costUsd));
+  return parts.join(' · ');
+}
 
 /**
  * Render the proposed resource hierarchy as an indented tree.
@@ -138,17 +166,7 @@ export function formatFgaReport(report: FgaScanReport): void {
     }
   }
 
-  if (analysis.integrationSnippets.length > 0) {
-    console.log('');
-    console.log('Integration Code');
-    for (const snippet of analysis.integrationSnippets) {
-      const where = snippet.appliesTo ? Chalk.dim(` — ${snippet.appliesTo}`) : '';
-      console.log(`   ${Chalk.bold(snippet.title)}${where}`);
-      for (const line of snippet.code.split('\n')) {
-        console.log(`     ${Chalk.dim(line)}`);
-      }
-    }
-  }
+  formatIntegrationSnippets(analysis.integrationSnippets);
 
   if (analysis.warnings.length > 0) {
     console.log('');
@@ -158,7 +176,16 @@ export function formatFgaReport(report: FgaScanReport): void {
     }
   }
 
+  if (report.usage.phases.length > 0) {
+    console.log('');
+    console.log('Token Usage');
+    for (const phase of report.usage.phases) {
+      console.log(`   ${phase.phase.padEnd(10)} ${formatUsageLine(phase.usage)}  ${Chalk.dim(phase.model)}`);
+    }
+    console.log(`   ${Chalk.bold('total'.padEnd(10))} ${formatUsageLine(report.usage.total)}`);
+  }
+
   console.log('');
-  console.log(Chalk.dim(`Model: ${report.model} · ${Math.round(report.durationMs / 1000)}s`));
+  console.log(Chalk.dim(`${Math.round(report.durationMs / 1000)}s total`));
   console.log(Chalk.dim('Learn more: https://workos.com/docs/fga'));
 }

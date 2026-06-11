@@ -10,8 +10,11 @@ import { hasCredentials } from '../lib/credentials.js';
 import { getInteractionMode } from '../utils/interaction-mode.js';
 import {
   runFgaScan,
+  generateIntegrationSnippets,
   formatFgaReport,
   formatDiscovery,
+  formatUsageLine,
+  formatIntegrationSnippets,
   formatFgaReportAsJson,
   generateFgaReportHtml,
   serveFgaReport,
@@ -25,6 +28,7 @@ export interface ScanFgaArgs {
   out?: string;
   domains?: string;
   entities?: string;
+  code?: boolean;
   direct?: boolean;
   debug?: boolean;
 }
@@ -44,22 +48,42 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
   const spinner = json ? null : clack.spinner();
   spinner?.start('Scanning project for FGA modeling...');
 
+  // Surface each pass's tokens + cost as a persistent line as it finishes, so
+  // cost shows up live in progress — not only in the final report.
+  const renderPhase = json
+    ? undefined
+    : (phase: { phase: string; usage: Parameters<typeof formatUsageLine>[0] }) => {
+        const label =
+          {
+            outline: 'Outlined data model',
+            discovery: 'Analyzed data model',
+            analysis: 'Proposed FGA model',
+            snippets: 'Generated integration code',
+          }[phase.phase] ?? phase.phase;
+        spinner?.stop(`${label} · ${formatUsageLine(phase.usage)}`);
+        spinner?.start('Working…');
+      };
+
   try {
-    const report = await runFgaScan({
+    let report = await runFgaScan({
       installDir,
       json,
+      // Headless/JSON: generate code in-pass when --code. Human mode defers it to
+      // an opt-in follow-up after the core report renders (see below).
+      code: json && (argv.code ?? false),
       direct: argv.direct,
       debug: argv.debug,
       domains: argv.domains,
       entities: argv.entities,
       onStatus: (message) => spinner?.message(message),
+      onPhase: renderPhase,
       // Pick-a-domain-first: between the cheap outline and the deep pass —
       // human mode only; headless runs scope via --domains/--entities or
       // analyze everything.
       selectScope:
         interactive && !json
           ? async (outline) => {
-              spinner?.stop('Data model outlined');
+              spinner?.stop();
               formatDiscovery(outline);
               const selection = await promptForDomain(outline);
               if (selection === null) {
@@ -81,6 +105,29 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
 
     if (!report.analysis) {
       exitWithCode(ExitCode.GENERAL_ERROR);
+    }
+
+    // Integration code is an opt-in follow-up: --code forces it, otherwise (in
+    // interactive mode) ask now that the core model is on screen.
+    let wantCode = argv.code ?? false;
+    if (!wantCode && interactive && !json) {
+      const answer = await clack.confirm({
+        message: 'Generate integration code snippets? (slower)',
+        initialValue: false,
+      });
+      wantCode = answer === true;
+    }
+    if (wantCode) {
+      spinner?.start('Generating integration code...');
+      report = await generateIntegrationSnippets(report, {
+        installDir,
+        direct: argv.direct,
+        debug: argv.debug,
+        onStatus: (message) => spinner?.message(message),
+        onPhase: renderPhase,
+      });
+      spinner?.stop();
+      formatIntegrationSnippets(report.analysis?.integrationSnippets ?? []);
     }
 
     const html = generateFgaReportHtml(report);

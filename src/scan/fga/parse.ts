@@ -67,6 +67,18 @@ function normalizeSnippet(raw: Record<string, unknown>): FgaIntegrationSnippet {
 }
 
 /**
+ * Parse the opt-in integration-code pass output into normalized snippets.
+ * Returns [] when nothing parseable is found (the step is best-effort).
+ */
+export function parseIntegrationSnippets(text: string): FgaIntegrationSnippet[] {
+  const parsed = parseFirstJsonObject(extractJsonCandidates(text, 'integrationSnippets'));
+  if (!parsed || !Array.isArray(parsed.integrationSnippets)) return [];
+  return (parsed.integrationSnippets as Record<string, unknown>[])
+    .map(normalizeSnippet)
+    .filter((s) => s.title && s.code);
+}
+
+/**
  * Parse the analysis agent's final output into a normalized FgaAnalysis.
  * Returns null when nothing parseable is found.
  */
@@ -83,13 +95,33 @@ export function parseFgaAgentOutput(text: string): FgaAnalysis | null {
   const warnings = asStringArray(parsed.warnings);
 
   // Hierarchy integrity: a parent must reference another proposed type.
-  // Dangling parents become roots so the diagram and tree renderers never
-  // chase a missing node.
+  // Dangling parents are reset (and then re-rooted under `organization` below).
   const knownTypes = new Set(resourceTypes.map((r) => r.type));
   for (const rt of resourceTypes) {
     if (rt.parent && !knownTypes.has(rt.parent)) {
-      warnings.push(`Resource type "${rt.type}" referenced unknown parent "${rt.parent}" — treated as a root.`);
+      warnings.push(`Resource type "${rt.type}" referenced unknown parent "${rt.parent}" — re-rooted under "organization".`);
       rt.parent = null;
+    }
+  }
+
+  // WorkOS convention: every FGA hierarchy is rooted at the `organization`
+  // tenant. Guarantee it — synthesize the implicit root if the model omitted it,
+  // and attach any other top-level type to it so nothing floats as a sibling root.
+  if (resourceTypes.length > 0) {
+    if (!resourceTypes.some((rt) => rt.type === 'organization')) {
+      resourceTypes.unshift({
+        type: 'organization',
+        displayName: 'Organization',
+        parent: null,
+        mappedEntities: [],
+        rationale: 'Tenant root — every WorkOS FGA hierarchy is rooted at the organization.',
+      });
+      warnings.push('Rooted the hierarchy at the implicit `organization` tenant.');
+    }
+    for (const rt of resourceTypes) {
+      if (rt.type !== 'organization' && rt.parent === null) {
+        rt.parent = 'organization';
+      }
     }
   }
 

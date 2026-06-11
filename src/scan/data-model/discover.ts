@@ -1,4 +1,4 @@
-import { runScanAgent, type ScanAgentOptions } from '../agent.js';
+import { runScanAgent, type ScanAgentOptions, type ScanUsage } from '../agent.js';
 import { buildDiscoveryPrompt, buildDomainOutlinePrompt, type DiscoveryPromptContext } from './discovery-prompt.js';
 import { parseDiscoveryOutput } from './parse.js';
 import type { DataModelDiscovery } from './types.js';
@@ -7,6 +7,7 @@ export interface DiscoveryResult {
   discovery: DataModelDiscovery | null;
   model: string;
   durationMs: number;
+  usage: ScanUsage;
 }
 
 /**
@@ -26,6 +27,7 @@ export async function discoverDomainOutline(
     discovery: parseDiscoveryOutput(result.outputText),
     model: result.model,
     durationMs: result.durationMs,
+    usage: result.usage,
   };
 }
 
@@ -46,5 +48,6 @@ export async function discoverDataModel(
     discovery: parseDiscoveryOutput(result.outputText),
     model: result.model,
     durationMs: result.durationMs,
+    usage: result.usage,
   };
 }

@@ -547,6 +547,11 @@ async function runCli(): Promise<void> {
               type: 'string',
               description: 'Comma-separated entity names to scope the scan to (skips the interactive picker)',
             },
+            code: {
+              type: 'boolean',
+              default: false,
+              description: 'Also generate integration code snippets (slower; prompted interactively otherwise)',
+            },
             direct: {
               type: 'boolean',
               default: false,

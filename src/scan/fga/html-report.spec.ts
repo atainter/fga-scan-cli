@@ -69,6 +69,17 @@ function report(overrides?: Partial<FgaScanReport>): FgaScanReport {
       warnings: ['Membership table is ambiguous'],
     },
     model: 'claude-test',
+    usage: {
+      phases: [
+        {
+          phase: 'analysis',
+          model: 'claude-test',
+          durationMs: 1234,
+          usage: { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.02, numTurns: 3 },
+        },
+      ],
+      total: { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.02, numTurns: 3 },
+    },
     durationMs: 1234,
     ...overrides,
   };
@@ -138,6 +149,8 @@ describe('generateFgaReportHtml', () => {
     expect(html).toContain('Authorize a project route');
     expect(html).toContain('workos.authorization.check');
     expect(html).toContain('Membership table is ambiguous');
+    expect(html).toContain('1,200 tokens');
+    expect(html).toContain('$0.02');
     expect(html).toContain('https://workos.com/docs/fga');
   });
 

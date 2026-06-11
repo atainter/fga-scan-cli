@@ -5,11 +5,15 @@ import type { FgaScanReport } from '../scan/fga/types.js';
 
 const mockRunFgaScan = vi.fn();
 const mockServeFgaReport = vi.fn();
+const mockGenerateIntegrationSnippets = vi.fn();
 
 vi.mock('../scan/fga/index.js', () => ({
   runFgaScan: (...args: unknown[]) => mockRunFgaScan(...args),
+  generateIntegrationSnippets: (...args: unknown[]) => mockGenerateIntegrationSnippets(...args),
   formatFgaReport: vi.fn(),
   formatDiscovery: vi.fn(),
+  formatUsageLine: () => '100 in · 50 out · $0.01',
+  formatIntegrationSnippets: vi.fn(),
   formatFgaReportAsJson: (report: unknown) => JSON.stringify(report, null, 2),
   generateFgaReportHtml: () => '<html>report</html>',
   serveFgaReport: (...args: unknown[]) => mockServeFgaReport(...args),
@@ -40,6 +44,7 @@ vi.mock('../utils/clack.js', () => ({
   default: {
     spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
     log: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
+    confirm: vi.fn(),
   },
 }));
 
@@ -62,6 +67,7 @@ function report(overrides?: Partial<FgaScanReport>): FgaScanReport {
       warnings: [],
     },
     model: 'claude-test',
+    usage: { phases: [], total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, numTurns: 0 } },
     durationMs: 10,
     ...overrides,
   };
@@ -85,6 +91,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockHasCredentials.mockReturnValue(true);
   mockGetInteractionMode.mockReturnValue({ mode: 'agent', source: 'non_tty' });
+  mockGenerateIntegrationSnippets.mockImplementation(async (r: FgaScanReport) => r);
 });
 
 describe('handleScanFga', () => {
@@ -141,6 +148,35 @@ describe('handleScanFga', () => {
     await expectExit(handleScanFga(argv({ open: false, out: '/tmp/fga.html' })), 0);
 
     expect(mockWriteFile).toHaveBeenCalledWith('/tmp/fga.html', '<html>report</html>', 'utf-8');
+  });
+
+  it('generates code in-pass (code:true) for json --code, not as a follow-up', async () => {
+    mockRunFgaScan.mockResolvedValue(report());
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await expectExit(handleScanFga(argv({ json: true, code: true })), 0);
+
+    expect(mockRunFgaScan).toHaveBeenCalledWith(expect.objectContaining({ code: true }));
+    expect(mockGenerateIntegrationSnippets).not.toHaveBeenCalled();
+
+    consoleLog.mockRestore();
+  });
+
+  it('runs the code follow-up (core pass code:false) when --code in non-json mode', async () => {
+    mockRunFgaScan.mockResolvedValue(report());
+
+    await expectExit(handleScanFga(argv({ open: false, code: true })), 0);
+
+    expect(mockRunFgaScan).toHaveBeenCalledWith(expect.objectContaining({ code: false }));
+    expect(mockGenerateIntegrationSnippets).toHaveBeenCalled();
+  });
+
+  it('does not generate code without --code in non-interactive mode', async () => {
+    mockRunFgaScan.mockResolvedValue(report());
+
+    await expectExit(handleScanFga(argv({ open: false })), 0);
+
+    expect(mockGenerateIntegrationSnippets).not.toHaveBeenCalled();
   });
 
   it('emits a structured error and exits 1 when the scan throws in json mode', async () => {
