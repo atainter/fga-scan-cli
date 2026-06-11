@@ -10,6 +10,9 @@ export function getVersion(): string {
 export interface InstallerConfig {
   model: string;
   doctorModel: string;
+  /** Model for all `workos scan` agent passes — kept small/fast (like doctor's
+   *  model) since the scan is read-only analysis, not code generation. */
+  scanModel: string;
   workos: {
     clientId: string;
     authkitDomain: string;

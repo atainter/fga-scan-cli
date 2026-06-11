@@ -1,4 +1,9 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { initializeAgent, runAgent } from '../lib/agent-interface.js';
+import { getConfig, getLlmGatewayUrl, getAuthkitDomain, getCliAuthClientId } from '../lib/settings.js';
+import { getCredentials, isTokenExpired, updateTokens } from '../lib/credentials.js';
+import { refreshAccessToken } from '../lib/token-refresh-client.js';
+import { formatWorkOSCommand } from '../utils/command-invocation.js';
 import { createInstallerEventEmitter } from '../lib/events.js';
 import type { InstallerOptions } from '../utils/types.js';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -95,6 +100,14 @@ export async function runScanAgent(options: ScanAgentOptions, prompt: string): P
 
   // Override the installer's read-write toolset — scans never modify the project
   agentConfig.allowedTools = SCAN_ALLOWED_TOOLS;
+  // Scans are read-only analysis, not code generation — run them on the small,
+  // fast scan model (like doctor) rather than the heavier installer model.
+  agentConfig.model = getConfig().scanModel;
+  // Drop the WorkOS docs MCP server: every pass would otherwise spawn
+  // `npx @workos/mcp-docs-server`, and the scan needs no docs — the FGA
+  // knowledge is in the prompt and it only reads the customer's code. This
+  // removes a large chunk of per-pass startup latency.
+  agentConfig.mcpServers = {};
 
   const collected: string[] = [];
   let resultText = '';
@@ -150,4 +163,68 @@ export async function runScanAgent(options: ScanAgentOptions, prompt: string): P
   const outputText = resultText || collected.join('\n');
 
   return { outputText, model: agentConfig.model, durationMs, usage };
+}
+
+export interface ScanModelOptions {
+  /** Bypass the gateway and use ANTHROPIC_API_KEY directly. */
+  direct?: boolean;
+  onStatus?: (message: string) => void;
+  spinnerMessage?: string;
+}
+
+/**
+ * Run a single, tool-free model call over a prompt — like `workos doctor`'s AI
+ * analysis. No agent SDK, MCP server, or turn loop, so it's much faster than
+ * runScanAgent for a pure reasoning step that needs no file access. Used for
+ * the FGA analysis pass, which reasons entirely from the discovery inventory.
+ */
+export async function runScanModel(options: ScanModelOptions, prompt: string): Promise<ScanAgentResult> {
+  if (options.spinnerMessage) options.onStatus?.(options.spinnerMessage);
+  const model = getConfig().scanModel;
+  const startTime = Date.now();
+
+  let client: Anthropic;
+  if (options.direct) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY is required when using --direct');
+    client = new Anthropic({ apiKey });
+  } else {
+    let creds = getCredentials();
+    if (!creds) throw new Error(`Not authenticated — run \`${formatWorkOSCommand('auth login')}\``);
+    if (isTokenExpired(creds)) {
+      const refreshed = creds.refreshToken
+        ? await refreshAccessToken(getAuthkitDomain(), getCliAuthClientId())
+        : null;
+      if (!refreshed?.success || !refreshed.accessToken || !refreshed.expiresAt) {
+        throw new Error(`Session expired — run \`${formatWorkOSCommand('auth login')}\` to re-authenticate`);
+      }
+      updateTokens(refreshed.accessToken, refreshed.expiresAt, refreshed.refreshToken);
+      creds = getCredentials()!;
+    }
+    client = new Anthropic({
+      baseURL: getLlmGatewayUrl(),
+      apiKey: 'gateway',
+      defaultHeaders: { Authorization: `Bearer ${creds.accessToken}` },
+    });
+  }
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 8192,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const outputText = response.content.map((block) => (block.type === 'text' ? block.text : '')).join('');
+  const u = response.usage;
+  const usage: ScanUsage = {
+    inputTokens: u?.input_tokens ?? 0,
+    outputTokens: u?.output_tokens ?? 0,
+    cacheReadTokens: u?.cache_read_input_tokens ?? 0,
+    cacheCreationTokens: u?.cache_creation_input_tokens ?? 0,
+    // The raw Messages API doesn't return a dollar cost (unlike the agent SDK).
+    costUsd: 0,
+    numTurns: 1,
+  };
+
+  return { outputText, model, durationMs: Date.now() - startTime, usage };
 }

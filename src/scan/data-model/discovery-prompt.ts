@@ -47,7 +47,7 @@ outside the chosen domain. Do NOT inventory unrelated entities from other domain
 ${focusEntities.map((e) => `- ${e}`).join('\n')}\n`
       : '';
 
-  return `You are a data-model analyst. Explore this project and produce an accurate inventory of its persistent data model. Do NOT analyze authorization yet — this is a pure discovery pass.
+  return `You are a data-model analyst. Read the schema/model files and produce an accurate inventory of this project's persistent data model. Work efficiently: read the pre-detected schema files, not the whole codebase, and don't deeply analyze business logic. Do NOT analyze authorization yet — this is a pure discovery pass.
 
 ## Project Context
 ${projectContext}

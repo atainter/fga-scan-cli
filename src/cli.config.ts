@@ -6,6 +6,7 @@ export const version = pkg.version;
 export const config = {
   model: 'claude-opus-4-5-20251101',
   doctorModel: 'claude-haiku-4-5-20251001',
+  scanModel: 'claude-haiku-4-5-20251001',
 
   // Production defaults - override via env vars for local dev
   workos: {

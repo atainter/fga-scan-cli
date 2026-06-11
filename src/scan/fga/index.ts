@@ -2,7 +2,7 @@ import { checkLanguage } from '../../doctor/checks/language.js';
 import { checkFramework } from '../../doctor/checks/framework.js';
 import { collectDataModelHints } from './collectors.js';
 import { buildFgaScanPrompt, buildIntegrationSnippetsPrompt } from './agent-prompt.js';
-import { runScanAgent, sumScanUsage, type ScanUsage } from '../agent.js';
+import { runScanAgent, runScanModel, sumScanUsage, type ScanUsage } from '../agent.js';
 import { discoverDataModel, discoverDomainOutline } from '../data-model/discover.js';
 import { applyScope, resolveScopeFromFlags } from '../data-model/scope.js';
 import { parseFgaAgentOutput, parseIntegrationSnippets } from './parse.js';
@@ -165,8 +165,10 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
   // Phase 2: FGA analysis over the scoped model
   onStatus('Analyzing FGA fit for the scoped model...');
   const prompt = buildFgaScanPrompt({ dataModel: discovery, scope });
-  const analysisResult = await runScanAgent(
-    { ...agentOptions, spinnerMessage: 'Analyzing FGA fit for the scoped model...' },
+  // Single direct model call (doctor-style) — no agent harness. The inventory
+  // is complete, so this reasoning step needs no file access.
+  const analysisResult = await runScanModel(
+    { direct: options.direct, onStatus, spinnerMessage: 'Analyzing FGA fit for the scoped model...' },
     prompt,
   );
 

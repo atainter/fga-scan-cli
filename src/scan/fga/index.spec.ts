@@ -5,6 +5,7 @@ import type { FgaAnalysis } from './types.js';
 const mockDiscoverDomainOutline = vi.fn();
 const mockDiscoverDataModel = vi.fn();
 const mockRunScanAgent = vi.fn();
+const mockRunScanModel = vi.fn();
 const mockParseFgaAgentOutput = vi.fn();
 const mockParseIntegrationSnippets = vi.fn();
 
@@ -20,6 +21,7 @@ const emptyUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheC
 
 vi.mock('../agent.js', () => ({
   runScanAgent: (...args: unknown[]) => mockRunScanAgent(...args),
+  runScanModel: (...args: unknown[]) => mockRunScanModel(...args),
   sumScanUsage: (list: (typeof usage)[]) =>
     list.reduce(
       (a, u) => ({
@@ -77,7 +79,8 @@ const analysis: FgaAnalysis = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRunScanAgent.mockResolvedValue({ outputText: '```json\n{}\n```', model: 'reason-model', durationMs: 1, usage });
+  mockRunScanAgent.mockResolvedValue({ outputText: '```json\n{}\n```', model: 'snippets-model', durationMs: 1, usage });
+  mockRunScanModel.mockResolvedValue({ outputText: '```json\n{}\n```', model: 'reason-model', durationMs: 1, usage });
   mockParseFgaAgentOutput.mockReturnValue(analysis);
   mockParseIntegrationSnippets.mockReturnValue([]);
 });

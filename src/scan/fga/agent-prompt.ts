@@ -93,9 +93,9 @@ const FGA_METHODOLOGY = `## Modeling methodology
   modeled ancestor. Note the trade-off in \`warnings\`.
 
 ### Building the hierarchy
-- Use owning foreign keys (the \`NOT NULL\` \`*_id\` that ties a child to its parent) and nested
-  route prefixes to derive parent→child links. A many-to-many join (e.g. \`project_collaborators\`)
-  is usually a **role assignment**, not a resource type.
+- Derive parent→child links from the owning relationships in the inventory (the \`belongsTo\` /
+  \`*_id\` foreign keys). A many-to-many join (e.g. \`project_collaborators\`) is usually a **role
+  assignment**, not a resource type.
 - Keep it shallow (2–4 levels typical; 5 is the hard ceiling). Sanity-check against the shapes
   WorkOS documents: multi-tenant SaaS (\`organization → workspace → project → app/database\`),
   developer platform (\`organization → repository → branch/secret\`), analytics
@@ -103,8 +103,8 @@ const FGA_METHODOLOGY = `## Modeling methodology
 
 ### Roles & permissions
 - Permissions: \`{resource_type}:{action}\` — \`view\` (read/list/show), \`edit\` (update/settings),
-  \`create\` (checked on the PARENT resource), \`delete\`, plus domain verbs you find in the code
-  (\`app:deploy\`, \`project:invite\`, \`dashboard:export\`). Mirror the customer's own vocabulary.
+  \`create\` (checked on the PARENT resource), \`delete\`, plus any domain verbs the entity names
+  suggest (\`app:deploy\`, \`project:invite\`, \`dashboard:export\`). Mirror the customer's vocabulary.
 - Roles: name them \`{resource-type}-{capability}\` (e.g. \`workspace-admin\`, \`project-editor\`).
   Each role is scoped to one resource type but may include permissions from that type AND its
   child types — that inclusion is how inheritance is expressed (set \`cascades: true\` when a role
@@ -165,7 +165,9 @@ export function buildFgaScanPrompt(context: FgaScanPromptContext): string {
     scopeLabel ? ` Frame the summary explicitly as ${scopeLabel}, NOT the whole application.` : ''
   } ALWAYS state that the hierarchy is rooted at the organization, which is the tenant.`;
 
-  return `You are a WorkOS FGA modeling analyst — read the codebase the way a WorkOS solutions engineer would during a "model your app" session. A discovery pass already inventoried this project's data model, and the user scoped the analysis to the entities below. Propose how to model THESE entities with WorkOS Fine-Grained Authorization. You never write to the customer's repo or their FGA environment — you only read code and produce a recommendation.
+  return `You are a WorkOS FGA modeling analyst. A discovery pass has ALREADY inventoried this project's data model — the entities, relationships, and domains below are complete and are your ground truth. Propose how to model THESE entities with WorkOS Fine-Grained Authorization, reasoning directly from the inventory.
+
+**Work entirely from the inventory below — you have no file access in this step.** The discovery pass already did the reading; reason directly from the entities, relationships, and domains provided. Be decisive: propose the smallest model that captures the real access boundaries — an SE's quick judgment call, not an exhaustive audit. You never write to the customer's repo or their FGA environment.
 ${scopeBlock}
 ${FGA_CONCEPTS}
 
@@ -184,9 +186,8 @@ ${JSON.stringify(
 )}
 
 ## Your Task
-1. Use the scoped data model above as your ground truth. You MAY re-read the cited files
-   (and explore with Glob/Grep) to understand fields, membership tables, and any existing
-   authorization code — but do not expand the proposal beyond the scoped entities.
+1. Use the scoped data model above as your ground truth — it is complete. Reason from it directly;
+   do not re-read files or explore. Do not expand the proposal beyond the scoped entities.
 2. Decide which scoped entities should become FGA resource types and how they nest (apply the
    methodology and hard constraints above).
 3. Propose roles scoped to those resource types, with permissions and cascade behavior, built
@@ -198,10 +199,8 @@ ${JSON.stringify(
    move to app code) as \`recommendations\`. Do NOT write SDK code here — that is a separate
    opt-in follow-up step.
 
-Report progress with [STATUS] prefixed lines as you work (e.g. "[STATUS] Reading membership model").
-
 ## Output Format
-End with your analysis as a JSON object wrapped in a markdown code block:
+Respond with your analysis as a JSON object wrapped in a markdown code block:
 \`\`\`json
 {
   "summary": "${summaryInstruction}",
@@ -269,7 +268,8 @@ End with your analysis as a JSON object wrapped in a markdown code block:
 - If the scoped model has no plausible access-gating entities, return empty arrays and explain
   why in the summary — do not fabricate a proposal.
 - Permissions use resource_type:action naming.
-- You have read-only access (Read, Glob, Grep). Do not attempt to modify files or run commands.`;
+- Reason entirely from the inventory above — you have no file access in this step. Do not fabricate
+  entities or relationships beyond it.`;
 }
 
 /**
