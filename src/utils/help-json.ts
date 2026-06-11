@@ -298,6 +298,14 @@ const commands: CommandSchema[] = [
             hidden: false,
           },
           {
+            name: 'model',
+            type: 'string',
+            description:
+              'Path to an existing data model artifact (a previous scan’s JSON or a Mermaid erDiagram) — skips AI discovery',
+            required: false,
+            hidden: false,
+          },
+          {
             name: 'code',
             type: 'boolean',
             description: 'Also generate integration code snippets (slower; prompted interactively otherwise)',

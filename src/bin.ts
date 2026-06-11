@@ -547,6 +547,11 @@ async function runCli(): Promise<void> {
               type: 'string',
               description: 'Comma-separated entity names to scope the scan to (skips the interactive picker)',
             },
+            model: {
+              type: 'string',
+              description:
+                "Path to an existing data model artifact (a previous scan's JSON or a Mermaid erDiagram) — skips AI discovery",
+            },
             code: {
               type: 'boolean',
               default: false,

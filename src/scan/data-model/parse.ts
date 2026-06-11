@@ -36,7 +36,15 @@ function normalizeEntity(raw: Record<string, unknown>): DiscoveredEntity | null 
 export function parseDiscoveryOutput(text: string): DataModelDiscovery | null {
   const parsed = parseFirstJsonObject(extractJsonCandidates(text, 'entities'));
   if (!parsed) return null;
+  return normalizeDiscovery(parsed);
+}
 
+/**
+ * Normalize an already-parsed discovery-shaped object. Shared by the agent
+ * output path above and `--model` artifact loading, so artifacts get the same
+ * referential-integrity guarantees as live discovery.
+ */
+export function normalizeDiscovery(parsed: Record<string, unknown>): DataModelDiscovery {
   const entities = Array.isArray(parsed.entities)
     ? (parsed.entities as Record<string, unknown>[])
         .map(normalizeEntity)

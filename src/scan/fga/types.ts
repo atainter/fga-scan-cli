@@ -107,6 +107,8 @@ export interface FgaScanReport {
   scope: ScopeSelection;
   /** Names from --domains/--entities flags that didn't match the discovery */
   scopeWarnings?: string[];
+  /** Set when the data model was loaded from a --model artifact instead of discovered */
+  modelArtifact?: string;
   /** Phase-2 result. Null when the analysis was skipped or unparseable. */
   analysis: FgaAnalysis | null;
   model: string;
@@ -128,6 +130,11 @@ export interface FgaScanOptions {
   domains?: string;
   /** Comma-separated entity names to scope the scan to (skips the picker) */
   entities?: string;
+  /**
+   * Path to a pre-existing data model artifact (discovery JSON from a previous
+   * scan, or a Mermaid erDiagram). Skips the AI discovery passes entirely.
+   */
+  model?: string;
   /** Bypass the LLM gateway and use ANTHROPIC_API_KEY directly */
   direct?: boolean;
   /** Also generate integration code snippets (slower, opt-in follow-up pass) */
@@ -144,4 +151,10 @@ export interface FgaScanOptions {
    * Implementations should exit the process themselves on user cancel.
    */
   selectScope?: (discovery: DataModelDiscovery) => Promise<ScopeSelection>;
+  /**
+   * Called with the full (pre-scope) discovery when an AI discovery pass
+   * succeeds. The CLI uses this to persist a reusable `--model` artifact.
+   * Not called when the model came from an artifact already.
+   */
+  onDiscovery?: (discovery: DataModelDiscovery) => void;
 }

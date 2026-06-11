@@ -66,7 +66,10 @@ ${focusBlock}
    "Projects", "Identity & Access", "Content". Domains let the user narrow the scan to one part
    of their application, so prefer 3–8 meaningful groups over one giant bucket.
 
-Report progress with [STATUS] prefixed lines as you work (e.g. "[STATUS] Reading Prisma schema").
+Narrate your progress with [STATUS] lines so the user sees the model assembling in real time:
+emit one after EACH file you read, with a running entity count — e.g.
+"[STATUS] prisma/schema.prisma — 12 entities so far" — and one when you start relationship
+extraction for a domain, e.g. "[STATUS] Mapping relationships: Projects".
 
 ## Output Format
 End with your inventory as a JSON object wrapped in a markdown code block:
@@ -137,7 +140,8 @@ ${formatHints(dataModelHints)}
    "Identity & Access", "Content". Prefer 3–8 meaningful groups over one giant bucket; give each a
    one-line description so the user knows what they're picking.
 
-Report progress with [STATUS] prefixed lines (e.g. "[STATUS] Listing Prisma models").
+Narrate your progress with [STATUS] lines so the user sees signs of life: emit one after EACH
+file you read, with a running entity count — e.g. "[STATUS] prisma/schema.prisma — 12 entities so far".
 
 ## Output Format
 End with your outline as a JSON object wrapped in a markdown code block:

@@ -4,6 +4,7 @@ import { collectDataModelHints } from './collectors.js';
 import { buildFgaScanPrompt, buildIntegrationSnippetsPrompt } from './agent-prompt.js';
 import { runScanAgent, runScanModel, sumScanUsage, type ScanUsage } from '../agent.js';
 import { discoverDataModel, discoverDomainOutline } from '../data-model/discover.js';
+import { loadModelArtifact } from '../data-model/artifact.js';
 import { applyScope, resolveScopeFromFlags } from '../data-model/scope.js';
 import { parseFgaAgentOutput, parseIntegrationSnippets } from './parse.js';
 import type { DataModelDiscovery, ScopeSelection } from '../data-model/types.js';
@@ -52,6 +53,12 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     dataModelHints,
   };
 
+  let discovery: DataModelDiscovery | null;
+  let discoveryModel: string;
+  let scope: ScopeSelection = { mode: 'all' };
+  let scopeWarnings: string[] | undefined;
+  let modelArtifact: string | undefined;
+
   // Accumulate per-pass token/cost usage. tally() summarizes whatever passes
   // ran by the time we return — including the early-skip paths.
   const phases: ScanPhaseUsage[] = [];
@@ -69,23 +76,46 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     usage: tally(),
     dataModel,
     scope,
+    modelArtifact,
     analysis: null,
     durationMs: Date.now() - startTime,
     skipped: true,
     skipReason: reason,
   });
 
-  // Phase 1: produce the (scoped) data model to analyze. Two routes:
+  // Phase 1: produce the (scoped) data model to analyze. Three routes:
+  //  - --model artifact: load a pre-existing model (previous scan's JSON or a
+  //    Mermaid ERD) — no AI discovery at all. The picker/flags still scope it.
   //  - Interactive + no flags: cheap OUTLINE → user picks a domain → focused
   //    deep discovery, so relationship extraction only runs on the chosen domain.
   //  - Headless / flagged: full discovery, then resolve scope from flags (or all).
   const hasFlags = Boolean(options.domains || options.entities);
-  let discovery: DataModelDiscovery | null;
-  let discoveryModel: string;
-  let scope: ScopeSelection = { mode: 'all' };
-  let scopeWarnings: string[] | undefined;
 
-  if (options.selectScope && !hasFlags) {
+  if (options.model) {
+    onStatus('Loading data model artifact...');
+    // Throws with an actionable message on unreadable/unrecognized artifacts —
+    // the command layer renders it as the scan failure.
+    const loaded = await loadModelArtifact(options.model);
+    modelArtifact = options.model;
+    discoveryModel = 'none (model artifact)';
+
+    if (loaded.entities.length === 0) {
+      return noModel(discoveryModel, loaded, scope, 'The model artifact contained no entities');
+    }
+
+    const flagScope = resolveScopeFromFlags(loaded, { domains: options.domains, entities: options.entities });
+    if (flagScope) {
+      scope = flagScope.selection;
+      if (flagScope.unknown.length > 0) {
+        scopeWarnings = flagScope.unknown.map(
+          (name) => `Unknown ${scope.mode === 'domains' ? 'domain' : 'entity'}: "${name}"`,
+        );
+      }
+    } else if (options.selectScope) {
+      scope = await options.selectScope(loaded);
+    }
+    discovery = applyScope(loaded, scope);
+  } else if (options.selectScope && !hasFlags) {
     onStatus('Outlining your data model...');
     const outlineResult = await discoverDomainOutline(
       { ...agentOptions, spinnerMessage: 'Outlining your data model...' },
@@ -120,6 +150,7 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     // the ancestor entities up to the organization root, so the proposed FGA
     // hierarchy stays connected from the tenant down to the domain.
     discovery = deepResult.discovery;
+    if (discovery) options.onDiscovery?.(discovery);
   } else {
     onStatus('Discovering your data model...');
     const discoveryResult = await discoverDataModel(
@@ -135,6 +166,7 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     if (full.entities.length === 0) {
       return noModel(discoveryModel, full, scope, full.summary || 'No persistent entities were found in this project');
     }
+    options.onDiscovery?.(full);
 
     const flagScope = resolveScopeFromFlags(full, { domains: options.domains, entities: options.entities });
     if (flagScope) {
@@ -155,6 +187,7 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
       dataModel: discovery,
       scope,
       scopeWarnings,
+      modelArtifact,
       analysis: null,
       durationMs: Date.now() - startTime,
       skipped: true,
@@ -180,6 +213,7 @@ export async function runFgaScan(options: FgaScanOptions): Promise<FgaScanReport
     dataModel: discovery,
     scope,
     scopeWarnings,
+    modelArtifact,
     analysis,
     model: analysisResult.model,
     usage: tally(),
