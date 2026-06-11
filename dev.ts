@@ -11,5 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Load .env.local from the package directory
 config({ path: resolve(__dirname, '.env.local'), quiet: true });
 
-// Now import and run the actual CLI
-import './bin.js';
+// Now import and run the actual CLI. This MUST be a dynamic import: a static
+// `import` is hoisted above the config() call above, which would run the CLI
+// before .env.local is loaded.
+await import('./src/bin.js');

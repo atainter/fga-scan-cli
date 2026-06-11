@@ -40,6 +40,14 @@ const validAnalysis = {
     ],
   },
   recommendations: [{ title: 'Start shallow', detail: 'Two levels is enough.', priority: 'high' }],
+  integrationSnippets: [
+    {
+      title: 'Authorize a project route',
+      language: 'javascript',
+      appliesTo: 'GET /projects/:id',
+      code: "const { authorized } = await workos.authorization.check({ permissionSlug: 'project:edit' });",
+    },
+  ],
   warnings: [],
 };
 
@@ -94,6 +102,26 @@ describe('parseFgaAgentOutput', () => {
     expect(analysis!.proposal.resourceTypes).toHaveLength(2);
     expect(analysis!.proposal.roles).toHaveLength(1);
     expect(analysis!.recommendations).toHaveLength(1);
+  });
+
+  it('parses integration snippets and drops ones missing code or title', () => {
+    const messy = structuredClone(validAnalysis) as Record<string, any>;
+    messy.integrationSnippets.push({ title: 'No code here' }); // missing code → dropped
+    messy.integrationSnippets.push({ code: 'orphan()' }); // missing title → dropped
+    messy.integrationSnippets.push({ title: 'No language', code: 'check()' }); // language defaults
+    const analysis = parseFgaAgentOutput(`\`\`\`json\n${JSON.stringify(messy)}\n\`\`\``);
+
+    expect(analysis!.integrationSnippets).toHaveLength(2);
+    expect(analysis!.integrationSnippets[0].appliesTo).toBe('GET /projects/:id');
+    expect(analysis!.integrationSnippets[1].language).toBe('javascript');
+  });
+
+  it('defaults integrationSnippets to an empty array when absent', () => {
+    const noSnippets = structuredClone(validAnalysis) as Record<string, any>;
+    delete noSnippets.integrationSnippets;
+    const analysis = parseFgaAgentOutput(`\`\`\`json\n${JSON.stringify(noSnippets)}\n\`\`\``);
+
+    expect(analysis!.integrationSnippets).toEqual([]);
   });
 
   it('defaults invalid priority to medium', () => {

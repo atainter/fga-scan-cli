@@ -37,6 +37,17 @@ export interface FgaRecommendation {
   priority: 'high' | 'medium' | 'low';
 }
 
+export interface FgaIntegrationSnippet {
+  /** Short title, e.g. "Check on a project detail route" */
+  title: string;
+  /** Fenced-code language tag for highlighting, e.g. `javascript`, `python`, `ruby` */
+  language: string;
+  /** Copyable code the customer adapts to wire FGA into the app */
+  code: string;
+  /** What this snippet wires up, e.g. `GET /projects/:id` or `resource sync on create` */
+  appliesTo?: string;
+}
+
 /**
  * Structured output of the phase-2 analysis agent. The data model itself is
  * NOT part of the analysis — phase 1 (discovery + scoping) owns it.
@@ -49,6 +60,8 @@ export interface FgaAnalysis {
     exampleChecks: FgaExampleCheck[];
   };
   recommendations: FgaRecommendation[];
+  /** Concrete SDK code suggestions for wiring FGA into the app's endpoints */
+  integrationSnippets: FgaIntegrationSnippet[];
   warnings: string[];
 }
 

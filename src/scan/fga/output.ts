@@ -138,6 +138,18 @@ export function formatFgaReport(report: FgaScanReport): void {
     }
   }
 
+  if (analysis.integrationSnippets.length > 0) {
+    console.log('');
+    console.log('Integration Code');
+    for (const snippet of analysis.integrationSnippets) {
+      const where = snippet.appliesTo ? Chalk.dim(` — ${snippet.appliesTo}`) : '';
+      console.log(`   ${Chalk.bold(snippet.title)}${where}`);
+      for (const line of snippet.code.split('\n')) {
+        console.log(`     ${Chalk.dim(line)}`);
+      }
+    }
+  }
+
   if (analysis.warnings.length > 0) {
     console.log('');
     console.log('Warnings');

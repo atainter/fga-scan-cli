@@ -8,12 +8,30 @@ them**, so the phases can be developed and iterated on independently.
 Inventory the customer's data model accurately, then let them narrow the scan to a domain.
 Everything downstream depends on this model being right.
 
+**Pick-a-domain-first**, so the expensive relationship-extraction + FGA reasoning only run on the
+chosen domain (interactive, unflagged runs):
+
+1. **Outline** (`buildDomainOutlinePrompt` / `discoverDomainOutline`) — a cheap pass that lists
+   entities (names + file paths) grouped into domains, *no relationships*. Fills the picker.
+2. **Pick** (`promptForDomain`) — the user chooses a single domain (or the whole app).
+3. **Focused deep discovery** (`buildDiscoveryPrompt` with `focusEntities` / `discoverDataModel`) —
+   extracts relationships for the picked entities only.
+
+Headless / `--domains` / `--entities` / `--json` runs skip the outline and do one full discovery,
+then resolve scope from the flags (or analyze everything).
+
 - `collectors.ts` (in `fga/`, moving here is fair game) — deterministic glob-based hints
   (Prisma, Drizzle, TypeORM, SQL migrations, Rails, Django, GraphQL, Mongoose)
-- `discovery-prompt.ts` — read-only agent prompt: entities + relationships + suggested domains
-- `parse.ts` — defensive parser; enforces file-path evidence and referential integrity
+- `discovery-prompt.ts` — outline prompt + relationship-extracting discovery prompt (with optional
+  `focusEntities` to scope the deep pass to one domain)
+- `parse.ts` — defensive parser; enforces file-path evidence and referential integrity (tolerates
+  the outline's missing relationships)
 - `scope.ts` — pure scope narrowing (`applyScope`) + `--domains`/`--entities` flag resolution
-- `picker.ts` — interactive clack picker shown between the phases (whole app / domains / entities)
+- `picker.ts` — `promptForDomain` (single domain or all, shown after the outline); `promptForScope`
+  retained for entity-level selection
+
+**Trade-off:** picking one domain defers all heavy work to that domain; picking "all" adds one
+cheap outline pass before the full deep discovery. Models are unchanged (Opus throughout).
 
 **Output contract:** `DataModelDiscovery` in `types.ts` — this is the interface phase 2 consumes.
 

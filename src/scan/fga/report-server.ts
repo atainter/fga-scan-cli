@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { serve } from '@hono/node-server';
+import { serve, type ServerType } from '@hono/node-server';
 
 export interface ReportServerHandle {
   url: string;
@@ -16,10 +16,14 @@ export async function serveFgaReport(html: string, reportJson: string, port = 0)
   app.get('/', (c) => c.html(html));
   app.get('/report.json', (c) => c.body(reportJson, 200, { 'Content-Type': 'application/json' }));
 
-  const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' });
-
-  const addr = server.address();
-  const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+  // Wait for the "listening" callback before reading the port. serve() binds
+  // asynchronously, so reading server.address() synchronously returns null and
+  // the URL ends up as :0 (port 0 = "let the OS pick a free port"). The
+  // listener gives the real assigned port.
+  let server!: ServerType;
+  const actualPort = await new Promise<number>((resolve) => {
+    server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => resolve(info.port));
+  });
 
   return {
     url: `http://127.0.0.1:${actualPort}`,

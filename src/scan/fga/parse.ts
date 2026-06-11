@@ -2,6 +2,7 @@ import { extractJsonCandidates, parseFirstJsonObject } from '../json-extract.js'
 import type {
   FgaAnalysis,
   FgaExampleCheck,
+  FgaIntegrationSnippet,
   FgaRecommendation,
   FgaResourceTypeProposal,
   FgaRoleProposal,
@@ -56,6 +57,15 @@ function normalizeRecommendation(raw: Record<string, unknown>): FgaRecommendatio
   };
 }
 
+function normalizeSnippet(raw: Record<string, unknown>): FgaIntegrationSnippet {
+  return {
+    title: asString(raw.title),
+    language: asString(raw.language, 'javascript'),
+    code: asString(raw.code),
+    appliesTo: typeof raw.appliesTo === 'string' && raw.appliesTo.length > 0 ? raw.appliesTo : undefined,
+  };
+}
+
 /**
  * Parse the analysis agent's final output into a normalized FgaAnalysis.
  * Returns null when nothing parseable is found.
@@ -95,10 +105,15 @@ export function parseFgaAgentOutput(text: string): FgaAnalysis | null {
     ? (parsed.recommendations as Record<string, unknown>[]).map(normalizeRecommendation).filter((r) => r.title)
     : [];
 
+  const integrationSnippets = Array.isArray(parsed.integrationSnippets)
+    ? (parsed.integrationSnippets as Record<string, unknown>[]).map(normalizeSnippet).filter((s) => s.title && s.code)
+    : [];
+
   return {
     summary: asString(parsed.summary),
     proposal: { resourceTypes, roles, exampleChecks },
     recommendations,
+    integrationSnippets,
     warnings,
   };
 }

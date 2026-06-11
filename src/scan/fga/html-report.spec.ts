@@ -58,6 +58,14 @@ function report(overrides?: Partial<FgaScanReport>): FgaScanReport {
         ],
       },
       recommendations: [{ title: 'Keep it shallow', detail: 'Two levels.', priority: 'high' }],
+      integrationSnippets: [
+        {
+          title: 'Authorize a project route',
+          language: 'javascript',
+          appliesTo: 'GET /projects/:id',
+          code: "const { authorized } = await workos.authorization.check({ permissionSlug: 'project:edit' });",
+        },
+      ],
       warnings: ['Membership table is ambiguous'],
     },
     model: 'claude-test',
@@ -126,6 +134,9 @@ describe('generateFgaReportHtml', () => {
     expect(html).toContain('Roles &amp; Permissions');
     expect(html).toContain('Example Access Checks');
     expect(html).toContain('Keep it shallow');
+    expect(html).toContain('Integration Code');
+    expect(html).toContain('Authorize a project route');
+    expect(html).toContain('workos.authorization.check');
     expect(html).toContain('Membership table is ambiguous');
     expect(html).toContain('https://workos.com/docs/fga');
   });

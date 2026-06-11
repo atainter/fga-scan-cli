@@ -16,7 +16,7 @@ vi.mock('../scan/fga/index.js', () => ({
 }));
 
 vi.mock('../scan/data-model/picker.js', () => ({
-  promptForScope: vi.fn(),
+  promptForDomain: vi.fn(),
 }));
 
 const mockHasCredentials = vi.fn();
@@ -58,6 +58,7 @@ function report(overrides?: Partial<FgaScanReport>): FgaScanReport {
       summary: 'ok',
       proposal: { resourceTypes: [], roles: [], exampleChecks: [] },
       recommendations: [],
+      integrationSnippets: [],
       warnings: [],
     },
     model: 'claude-test',

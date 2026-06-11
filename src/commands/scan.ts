@@ -16,7 +16,7 @@ import {
   generateFgaReportHtml,
   serveFgaReport,
 } from '../scan/fga/index.js';
-import { promptForScope } from '../scan/data-model/picker.js';
+import { promptForDomain } from '../scan/data-model/picker.js';
 
 export interface ScanFgaArgs {
   installDir?: string;
@@ -53,18 +53,19 @@ export async function handleScanFga(argv: ArgumentsCamelCase<ScanFgaArgs>): Prom
       domains: argv.domains,
       entities: argv.entities,
       onStatus: (message) => spinner?.message(message),
-      // Interactive scoping between discovery and analysis — human mode only;
-      // headless runs scope via --domains/--entities or analyze everything.
+      // Pick-a-domain-first: between the cheap outline and the deep pass —
+      // human mode only; headless runs scope via --domains/--entities or
+      // analyze everything.
       selectScope:
         interactive && !json
-          ? async (discovery) => {
-              spinner?.stop('Data model discovered');
-              formatDiscovery(discovery);
-              const selection = await promptForScope(discovery);
+          ? async (outline) => {
+              spinner?.stop('Data model outlined');
+              formatDiscovery(outline);
+              const selection = await promptForDomain(outline);
               if (selection === null) {
                 exitWithCode(ExitCode.CANCELLED);
               }
-              spinner?.start('Analyzing FGA fit...');
+              spinner?.start('Analyzing your data model...');
               return selection;
             }
           : undefined,
