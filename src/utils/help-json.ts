@@ -246,6 +246,48 @@ const commands: CommandSchema[] = [
     ],
   },
   {
+    name: 'scan',
+    description: 'AI-powered scans of your project (FGA modeling and more)',
+    commands: [
+      {
+        name: 'fga',
+        description: 'Analyze your data model and propose a WorkOS FGA resource hierarchy',
+        options: [
+          {
+            name: 'install-dir',
+            type: 'string',
+            description: 'Project directory to scan (defaults to cwd)',
+            required: false,
+            hidden: false,
+          },
+          {
+            name: 'json',
+            type: 'boolean',
+            description: 'Output report as JSON',
+            required: false,
+            default: false,
+            hidden: false,
+          },
+          {
+            name: 'open',
+            type: 'boolean',
+            description: 'Serve the HTML report locally and open it in your browser',
+            required: false,
+            default: true,
+            hidden: false,
+          },
+          {
+            name: 'out',
+            type: 'string',
+            description: 'Write the HTML report to a file',
+            required: false,
+            hidden: false,
+          },
+        ],
+      },
+    ],
+  },
+  {
     name: 'env',
     description: 'Manage environment configurations (API keys, endpoints, active environment)',
     options: [insecureStorageOpt],

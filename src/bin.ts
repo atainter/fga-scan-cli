@@ -308,6 +308,7 @@ async function runCli(): Promise<void> {
           'auth',
           'skills',
           'doctor',
+          'scan',
           'env',
           'claim',
           'install',
@@ -512,6 +513,46 @@ async function runCli(): Promise<void> {
         await handleDoctor(argv);
       },
     )
+    .command('scan', 'AI-powered scans of your project (FGA modeling and more)', (yargs) => {
+      registerSubcommand(
+        yargs,
+        'fga',
+        'Analyze your data model and propose a WorkOS FGA resource hierarchy',
+        (y) =>
+          y.options({
+            'install-dir': {
+              type: 'string',
+              default: process.cwd(),
+              description: 'Project directory to scan',
+            },
+            json: {
+              type: 'boolean',
+              default: false,
+              description: 'Output report as JSON',
+            },
+            open: {
+              type: 'boolean',
+              default: true,
+              description: 'Serve the HTML report locally and open it in your browser',
+            },
+            out: {
+              type: 'string',
+              description: 'Write the HTML report to a file',
+            },
+            direct: {
+              type: 'boolean',
+              default: false,
+              hidden: true,
+              description: 'Bypass the LLM gateway and use ANTHROPIC_API_KEY directly',
+            },
+          }),
+        async (argv) => {
+          const { handleScanFga } = await import('./commands/scan.js');
+          await handleScanFga(argv);
+        },
+      );
+      return yargs.demandCommand(1, 'Please specify a scan target (e.g. `workos scan fga`)').strict();
+    })
     // NOTE: When adding commands here, also update src/utils/help-json.ts
     .command('env', 'Manage environment configurations (API keys, endpoints, active environment)', (yargs) => {
       yargs.options(insecureStorageOption);
